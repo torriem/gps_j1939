@@ -15,6 +15,11 @@
     transmits this GPS position to autotrac in place of the onboard
     receiver.
 
+    On Teensy requires the FlexCAN_T4 library, which ships with the
+    TeensyDuino Arduino IDE add-on.  Also if the TFT display is used,
+    requires the Adafruit TFT library which should be a part of the
+    Arduino IDE already.
+
     This project is licensed under the GPL v3 or greater.  Please see
     https://www.gnu.org/licenses/gpl-faq.en.html for more information.
 
