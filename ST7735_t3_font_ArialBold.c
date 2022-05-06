@@ -1,3 +1,6 @@
+#include "whichteensy.h"
+
+#ifdef TEENSY //skip compiling this if not using teensy
 #include "ST7735_t3_font_ArialBold.h"
 
 static const unsigned char Arial_8_Bold_data[] = {
@@ -13457,6 +13460,5 @@ const ST7735_t3_font_t Arial_96_Bold = {
 	148,
 	95
 };
-
-
+#endif
 

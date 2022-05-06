@@ -1,15 +1,7 @@
 #ifndef __CANFRAME_H__
 #define __CANFRAME_H__
 
-#ifdef ARDUINO_TEENSY40
-#define TEENSY 1
-#endif
-#ifdef ARDUINO_TEENSY41
-#define TEENSY 1
-#endif
-#ifdef ARDUINO_TEENSY36
-#define TEENSY 1
-#endif
+#include "whichteensy.h"
 
 #ifdef TEENSY
 #  include <FlexCAN_T4.h>

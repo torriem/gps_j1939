@@ -1,6 +1,9 @@
 #ifndef _ST7735_t3_font_ArialBold_
 #define _ST7735_t3_font_ArialBold_
 
+#include "whichteensy.h"
+
+#ifdef TEENSY //skip all this if not using Teensy
 #include "ST7735_t3.h"
 
 #ifdef __cplusplus
@@ -30,4 +33,5 @@ extern const ST7735_t3_font_t Arial_96_Bold;
 } // extern "C"
 #endif
 
+#endif
 #endif

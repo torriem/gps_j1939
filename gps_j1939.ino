@@ -29,6 +29,7 @@
 
 #include <math.h>
 #include "canframe.h" //also defines TEENSY
+#include "whichteensy.h"
 
 //Plan to support different kinds of external GPS using modules
 #define EXTGPS_PX1172RH 1 
@@ -642,9 +643,17 @@ void loop()
 				msg.get_data()->uint32[1] = (autosteer_lon + 210.0) * 10000000;
 
 				if (receiver_from == 1 ) {
+#ifdef TEENSY					
 					Can0.write(msg);
+#else
+					Can0.sendFrame(msg);
+#endif
 				} else {
+#ifdef TEENSY					
 					Can1.write(msg);
+#else
+					Can1.sendFrame(msg);
+#endif
 				}
 
 				//try overriding heading with our exact dual gps heading
@@ -660,9 +669,17 @@ void loop()
 				msg.get_data()->uint16[3] = (autosteer_altitude / 1000.0 + 2500) * 8;
 
 				if (receiver_from == 1 ) {
+#ifdef TEENSY					
 					Can0.write(msg);
+#else
+					Can0.sendFrame(msg);
+#endif
 				} else {
+#ifdef TEENSY					
 					Can1.write(msg);
+#else
+					Can1.sendFrame(msg);
+#endif
 				}
 
 			}

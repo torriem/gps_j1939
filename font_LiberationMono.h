@@ -1,17 +1,9 @@
 #ifndef _ST7735_t3_font_LiberationMono_
 #define _ST7735_t3_font_LiberationMono_
 
-#ifdef ARDUINO_TEENSY40
-#define TEENSY 1
-#endif
-#ifdef ARDUINO_TEENSY41
-#define TEENSY 1
-#endif
-#ifdef ARDUINO_TEENSY36
-#define TEENSY 1
-#endif
+#include "whichteensy.h"
 
-#ifdef TEENSY
+#ifdef TEENSY //skip all this if not using Teensy
 #include "ST7735_t3.h"
 
 #ifdef __cplusplus
