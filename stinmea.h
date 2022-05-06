@@ -6,7 +6,7 @@
 
 /*
  * A simple Arduino class to process MicroNMEA sentences from GPS and GNSS
- * receivers.  this version only parses GGA.  Everything else is ignored.
+ * receivers.  this version only parses PSTI.  Everything else is ignored.
  *
  * based on MicroNMEA, LGPL
  * TODO: url, copyright original auther
