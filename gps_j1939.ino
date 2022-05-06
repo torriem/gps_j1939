@@ -12,8 +12,8 @@
     Second, it can receive GPS position information from a SkyTraq
     PX1172RH dual-antenna GPS board. After calculating the GPS position
     on the ground, corrected for the roll of the tractor, it
-    transmits this GPS position to autotrac in place of the onboard
-    receiver.
+    transmits this GPS position on the CAN bus using standard j1939
+    PGNs, in place of any existing GPS messages that were intercepted.
 
     On Teensy requires the FlexCAN_T4 library, which ships with the
     TeensyDuino Arduino IDE add-on.  Also if the TFT display is used,
@@ -46,8 +46,8 @@
 #    include <SPI.h>
 #    include <ST7735_t3.h> // Hardware-specific library
 #    include <ST7789_t3.h> // Hardware-specific library
-#    include <ST7735_t3_font_Arial.h>
-#    include <ST7735_t3_font_ArialBold.h>
+#    include <st7735_t3_font_Arial.h>
+#    include "ST7735_t3_font_ArialBold.h"
 #    include "font_LiberationMono.h"
 #    define TFT_RST    9   // chip reset
 #    define TFT_DC     8   // tells the display if you're sending data (D) or commands (C)   --> WR pin on TFT
@@ -74,6 +74,70 @@ FlexCAN_T4<CAN1, RX_SIZE_1024, TX_SIZE_1024> Can0;
 FlexCAN_T4<CAN2, RX_SIZE_1024, TX_SIZE_1024> Can1;
 #ifdef TEENSY_TFT
 ST7789_t3 tft = ST7789_t3(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST);
+
+int16_t tft_drawDouble(double floatNumber, int dp, int poX, int poY)
+{
+  char str[14];               // Array to contain decimal string
+  uint8_t ptr = 0;            // Initialise pointer for array
+  int8_t  digits = 1;         // Count the digits to avoid array overflow
+  double rounding = 0.5;       // Round up down delta
+
+  if (dp > 7) dp = 7; // Limit the size of decimal portion
+
+  // Adjust the rounding value
+  for (uint8_t i = 0; i < dp; ++i) rounding /= 10.0;
+
+  if (floatNumber < -rounding)    // add sign, avoid adding - sign to 0.0!
+  {
+    str[ptr++] = '-'; // Negative number
+    str[ptr] = 0; // Put a null in the array as a precaution
+    digits = 0;   // Set digits to 0 to compensate so pointer value can be used later
+    floatNumber = -floatNumber; // Make positive
+  }
+
+  floatNumber += rounding; // Round up or down
+
+  // For error put ... in string and return (all TFT_ILI9341_ESP library fonts contain . character)
+  if (floatNumber >= 2147483647) {
+    strcpy(str, "...");
+    //return drawString(str, poX, poY);
+  }
+  // No chance of overflow from here on
+
+  // Get integer part
+  unsigned long temp = (unsigned long)floatNumber;
+
+  // Put integer part into array
+  ltoa(temp, str + ptr, 10);
+
+  // Find out where the null is to get the digit count loaded
+  while ((uint8_t)str[ptr] != 0) ptr++; // Move the pointer along
+  digits += ptr;                  // Count the digits
+
+  str[ptr++] = '.'; // Add decimal point
+  str[ptr] = '0';   // Add a dummy zero
+  str[ptr + 1] = 0; // Add a null but don't increment pointer so it can be overwritten
+
+  // Get the decimal portion
+  floatNumber = floatNumber - temp;
+
+  // Get decimal digits one by one and put in array
+  // Limit digit count so we don't get a false sense of resolution
+  uint8_t i = 0;
+  while ((i < dp) && (digits < 12)) // while (i < dp) for no limit but array size must be increased
+  {
+    i++;
+    floatNumber *= 10;       // for the next decimal
+    temp = floatNumber;      // get the decimal
+    ltoa(temp, str + ptr, 10);
+    ptr++; digits++;         // Increment pointer and digits count
+    floatNumber -= temp;     // Remove that digit
+  }
+
+  // Finally we can plot the string and return pixel length
+  return tft.drawString(str, poX, poY);
+}
+
 #endif
 #endif
 
@@ -501,11 +565,11 @@ void loop()
 #ifdef TEENSY_TFT
 				tft.setTextColor(rgb(0,0,0), 0xffff);
 				tft.setFont(LiberationMono_20);
-				tft.drawDouble(autosteer_lat,7,5,5);
-				tft.drawDouble(autosteer_lon,7,5,30);
+				tft_drawDouble(autosteer_lat,7,5,5);
+				tft_drawDouble(autosteer_lon,7,5,30);
 				tft.setTextColor(0,0xffff);
-				tft.drawDouble(autosteer_roll,2,5,55);
-				tft.drawDouble(autosteer_heading,2,5,80);
+				tft_drawDouble(autosteer_roll,2,5,55);
+				tft_drawDouble(autosteer_heading,2,5,80);
 				tft.setCursor(5,217);
 				tft.setFont(Arial_16_Bold);
 				switch (autosteer_source) {
