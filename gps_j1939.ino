@@ -2,8 +2,8 @@
     This program is intended to run on either a Teensy 4.x or an 
     Arduino Due.  Possibly can be made to run on any microcontroller
     that has two CAN interfaces and is reasonably fast, at least 100 
-    Mhz.  As written the Teensy version requires a TFT screen. Will
-    change that later.
+    Mhz.  Teensy version can optionally use a TFT screen for a readout
+    and debugging.
 
     This program does two things.  First it can enable steering with
     autotrac using only WAAS.  It does this by changing a CAN message
@@ -69,6 +69,53 @@
 
 #define RADIANS(deg) deg * M_PI / 180.0
 #define DEGREES(rad) rad * 180.0 / M_PI
+#define INCHES 0.0254
+#define FEET 0.3048
+
+//modes depending on where plugged in
+#define ON_ROOF 1 //plugged into roof in place of receiver
+#define BETWEEN_MODIFY 2 //plugged between existing receiver and monitor
+#define BETWEEN 3 //plugged between pillar and monitor, no existing receiver
+
+double antenna_forward=0; //antenna this far ahead of axle
+double antenna_height=120 * INCHES; //inches above ground
+double antenna_right=26.5 * INCHES; //for double antenna, how far away the right-most antenna is from the from center
+#define EXT_GPS_TIMEOUT 5000 //after 5 seconds of no external position, revert to internal.
+uint8_t gps_mode=BETWEEN_MODIFY;
+
+
+//external GPS source variables
+double autosteer_lat=0;
+double autosteer_lon=0;
+double autosteer_heading = 0;
+double autosteer_roll = 0;
+double autosteer_yawrate = 0;
+double autosteer_speed = 0;
+double autosteer_altitude = 0;
+
+int autosteer_source=0; //0 = inadequate, 1=WAAS, 2 = SF1 or higher, 3 = External
+long autosteer_lastext=0;
+char autosteer_mode='G';
+
+long can_messages_received = 0; // a sort of heartbeat on the CAN bus.
+uint8_t spinner_state = 0;
+
+static const char *spinner="-\\|/";
+
+double tractor_lat = -400;
+double tractor_lon = -400;
+
+//Save some frames so we can modify them with injected information
+CANFrame vehicle_position_frame;
+CANFrame vehicle_dirspeed_frame;
+CANFrame tcm_roll_frame;
+
+int8_t monitor_can = -1;
+
+uint16_t override_speed = 0;
+
+bool debug_messages=false;
+
 
 #ifdef TEENSY
 FlexCAN_T4<CAN1, RX_SIZE_1024, TX_SIZE_1024> Can0;
@@ -142,42 +189,6 @@ int16_t tft_drawDouble(double floatNumber, int dp, int poX, int poY)
 #endif
 #endif
 
-double antenna_forward=0; //antenna this far ahead of axle
-double antenna_height=3.048; //meters above ground
-double antenna_left=0.6731; //for double antenna, how far away from center is the left-most antenna
-#define EXT_GPS_TIMEOUT 5000 //after 5 seconds of no external position, revert to internal.
-
-
-//external GPS source variables
-double autosteer_lat=0;
-double autosteer_lon=0;
-double autosteer_heading = 0;
-double autosteer_roll = 0;
-double autosteer_yawrate = 0;
-double autosteer_speed = 0;
-double autosteer_altitude = 0;
-int autosteer_source=0; //0 = inadequate, 1=WAAS, 2 = SF1 or higher, 3 = External
-long autosteer_lastext=0;
-char autosteer_mode='G';
-
-long can_messages_received = 0; // a sort of heartbeat on the CAN bus.
-uint8_t spinner_state = 0;
-
-static const char *spinner="-\\|/";
-
-double tractor_lat = -400;
-double tractor_lon = -400;
-
-//Save some frames so we can modify them with injected information
-CANFrame vehicle_position_frame;
-CANFrame vehicle_dirspeed_frame;
-CANFrame tcm_roll_frame;
-
-uint8_t receiver_from;
-
-uint16_t override_speed = 0;
-
-bool debug_messages=false;
 
 static inline void print_hex(uint8_t *data, int len) {
 	char temp[4];
@@ -221,7 +232,7 @@ long j1939_encode(unsigned long pgn, byte priority, byte src_addr, byte dest_add
 	id = id | src_addr;
 	id = id | dest_addr << 8;
 
-	return dest_addr;
+	return id;
 }
 
 /****
@@ -241,6 +252,9 @@ void got_frame(CANFrame &frame, int which) {
 
 	/* look for specific frames that we're interested in */
 	if (srcaddr == 240) {
+		//this is coming from the monitor?
+		monitor_can = which;
+
 		switch(PGN) {
 		case 65096: //vehicle wheel speed
 			if(override_speed) {
@@ -251,6 +265,9 @@ void got_frame(CANFrame &frame, int which) {
 		}
 	}
 	if (srcaddr == 128) {
+		//this is coming from the monitor?
+		monitor_can = which;
+
 		switch(PGN) {
 		case 65535:
 			switch(frame.get_data()->bytes[0]){
@@ -264,7 +281,7 @@ void got_frame(CANFrame &frame, int which) {
 		}
 	}
 	if (srcaddr == 28) {
-		receiver_from = which; //remember which CAN interface the GPS receiver is on
+		//receiver_from = which; //remember which CAN interface the GPS receiver is on
 		send=false;
 
 		switch(PGN) {
@@ -337,11 +354,13 @@ void got_frame(CANFrame &frame, int which) {
 				break;
 			}
 
+			/*
 			//dump out required messages for analysis.
 			switch(frame.get_data()->bytes[0]) {
 			case 0x51:
 			case 0x52:
 			case 0x53:
+			case 0x54:
 			case 0xe1:
 				debug_messages=true;
 				Serial.print(millis());
@@ -350,7 +369,8 @@ void got_frame(CANFrame &frame, int which) {
 				Serial.print(" ");
 				print_hex(frame.get_data()->bytes, frame.get_length());
 				debug_messages=false;
-			}
+			} 
+			*/
 			break;
 
 		case 65267:
@@ -382,6 +402,7 @@ void got_frame(CANFrame &frame, int which) {
 			//autosteer_altitude = frame.get_data()->uint16[3] * 0.125 - 2500;
 
 			if (autosteer_source == 3) {
+				//we'll generate this message from the external RTK
 				send = false;
 			} else {
 				// vehicle heading
@@ -392,18 +413,11 @@ void got_frame(CANFrame &frame, int which) {
 			//Serial.println("got 65256");
 			break;
 
-		default:
-			if(destaddr == 255 && PGN==65254) {
-				send=true;
-				debug_messages=true;
-				Serial.print(millis());
-				Serial.print(" ");
-				Serial.print(PGN);
-				Serial.print(" ");
+		case 65254:
+			//This is the date and time message
+			//we'll synthesize it
+			send = false;
 
-				print_hex(frame.get_data()->bytes, frame.get_length());
-				debug_messages=false;
-			}
 		}
 	}
 
@@ -452,6 +466,37 @@ void can1_got_frame(CAN_FRAME *orig_frame) {
 	got_frame(frame, 1);
 }
 #endif
+
+void send_message(CANFrame &msg) {
+	if (monitor_can < 0 ) return; //we don't know where to send it
+
+	if (gps_mode == ON_ROOF || gps_mode == BETWEEN_MODIFY) {
+		//only send it to the monitor
+		if (monitor_can == 1 ) {
+#ifdef TEENSY					
+			Can1.write(msg);
+#else
+			Can1.sendFrame(msg);
+#endif
+		} else {
+#ifdef TEENSY					
+			Can0.write(msg);
+#else
+			Can0.sendFrame(msg);
+#endif
+		}
+	} else {
+		//send it both ways so everyone on the implement bus
+		//can see the GPS messages
+#ifdef TEENSY					
+		Can0.write(msg);
+		Can1.write(msg);
+#else
+		Can0.sendFrame(msg);
+		Can1.sendFrame(msg);
+#endif
+	}
+}
 
 void setup()
 {
@@ -541,6 +586,10 @@ void loop()
 	char c;
 	
 	unsigned long last_time = millis();
+
+	CANFrame msg; //for generating gps messages
+	msg.set_extended(true);
+	msg.set_length(8); //all our messages are going to be 8 bytes
 
 	while(1) {
 		//perhaps check to see how long since we had our last external GPS reading.
@@ -635,52 +684,61 @@ void loop()
 				autosteer_lastext = millis();
 				autosteer_source = 3; //tell CAN proxy we're injecting GPS positions now
 				//if external RTK, inject a CAN message with our position
-				CANFrame msg;
-				//copy a message we've already seen so the ID will be correct
-				//we'll make them from scratch once we know this works.
-				msg = vehicle_position_frame;
+				
+				//gps position
+				//create pgn 65267, priority 3, source 28, dest 2555
+				msg.set_id(j1939_encode(65267, 3, 28, 255));
 				msg.get_data()->uint32[0] = (autosteer_lat + 210.0) * 10000000;
 				msg.get_data()->uint32[1] = (autosteer_lon + 210.0) * 10000000;
+				send_message(msg);
 
-				if (receiver_from == 1 ) {
-#ifdef TEENSY					
-					Can0.write(msg);
-#else
-					Can0.sendFrame(msg);
-#endif
-				} else {
-#ifdef TEENSY					
-					Can1.write(msg);
-#else
-					Can1.sendFrame(msg);
-#endif
-				}
-
-				//try overriding heading with our exact dual gps heading
-				msg = vehicle_dirspeed_frame;
+				//vehicle direction and speed
+				//pgn 65256, priority 3, src 28, dest 255
+				msg.set_id(j1939_encode(65256,3,28,255));
 				msg.get_data()->uint16[0] = autosteer_heading / 100.0 * 128;
-
-				//Serial.println(autosteer_speed);
-				//msg.get_data()->uint16[1] = autosteer_speed * 256;
-
-				//vehicle pitch
-				//msg.get_data()->uint[2] = 200 * 128;
-
+				msg.get_data()->uint16[1] = autosteer_speed * 256;
+				msg.get_data()->uint16[2] = 200 * 128; //not sure how critical vehicle pitch is
 				msg.get_data()->uint16[3] = (autosteer_altitude / 1000.0 + 2500) * 8;
+				send_message(msg);
 
-				if (receiver_from == 1 ) {
-#ifdef TEENSY					
-					Can0.write(msg);
-#else
-					Can0.sendFrame(msg);
-#endif
-				} else {
-#ifdef TEENSY					
-					Can1.write(msg);
-#else
-					Can1.sendFrame(msg);
-#endif
-				}
+				//TODO: synthesis 51, 52, 53, 0xe1 proprietary messages
+				//PGN 65535, first byte 51, priority 3, src 28, dest 255
+				//GPS Status message
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0x02120b15020351; //little endian
+				send_message(msg);
+
+				//PGN 65535, first byte 52, priority 3, src 28, dest 255
+				//GPS satellites used message
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0x1fd47d4260a10552; //little endian
+				send_message(msg);
+
+				//PGN 65535, first byte 53, priority 6, src 28, dest 255
+				//Differential receiver status
+				msg.set_id(j1939_encode(65535,6,28,255));
+				msg.get_data()->uint64 = 0x544110404a900153; //little endian
+
+				if (autosteer_mode == 'R')
+					msg.get_data()->bytes[3] = 0x7a;
+				else
+					msg.get_data()->bytes[3] = 0x66;
+				send_message(msg);
+					
+				//PGN 65535, first byte 0xe1, priority 2, src 28, dest 255
+				//TCM pitch, roll, etc.
+				msg.set_id(j1939_encode(65535,2,28,255));
+				msg.get_data()->uint16[0] = 0xe0e1;
+				msg.get_data()->uint16[1] = (autosteer_roll + 200) * 128.0;
+				msg.get_data()->uint16[2] = (autosteer_yawrate + 200) * 128.0;
+				msg.get_data()->uint16[3] = 200 * 128; //probably vehicle pitch on a 3000.
+				send_message(msg);
+
+
+				//PGN 65254, priority 3, src 28, dest 255
+				//date and time
+				msg.set_id(j1939_encode(65254,3,28,255));
+
 
 			}
 #endif
