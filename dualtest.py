@@ -93,10 +93,10 @@ def log_gps( gps_pos, position, logfile):
     logfile.flush()
     last_gps_pos = gps_pos
 
-
-
-
-    
+def log_serial_data(to_file, line):
+    to_file.write(line);
+    to_file.write('\n');
+        
 
 if __name__ == "__main__":
     import pynmea2
@@ -136,16 +136,26 @@ if __name__ == "__main__":
     position = Position()
 
     logfile = open ("gps.log", "a", encoding = 'utf-8')
+    seriallog = open ("serial.log", "a", encoding = 'utf-8')
 
     #file = open(sys.argv[1], encoding='utf-8')
-    serial = serial.Serial('/dev/ttyUSB3', baudrate = 115200)
+
+    if len(sys.argv) > 1:
+        serialport = sys.argv[1]
+    else:
+        serialport = '/dev/ttyUSB3'
+
+    serial = serial.Serial(serialport, baudrate = 115200)
 
     thread = threading.Thread(target=serial_readline, args = (serial, ),).start()
 
     roll = 0
 
     while True:
+        if queue.empty(): continue
         line = queue.get(True, 1)
+
+        log_serial_data(seriallog, line)
         try:
             msg = pynmea2.parse(line)
 
