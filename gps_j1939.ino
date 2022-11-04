@@ -86,12 +86,15 @@ uint8_t gps_mode=BETWEEN_MODIFY;
 
 //external GPS source variables
 double autosteer_lat=0;
+double autosteer_orig_lat=0;
 double autosteer_lon=0;
+double autosteer_orig_lon=0;
 double autosteer_heading = 0;
 double autosteer_roll = 0;
 double autosteer_yawrate = 0;
 double autosteer_speed = 0;
 double autosteer_altitude = 0;
+double autosteer_orig_altitude = 0;
 
 int autosteer_source=0; //0 = inadequate, 1=WAAS, 2 = SF1 or higher, 3 = External
 long autosteer_lastext=0;
@@ -275,7 +278,9 @@ void got_frame(CANFrame &frame, int which) {
 				if (override_speed) {
 					frame.get_data()->uint8[1] = (override_speed >> 8);
 					frame.get_data()->uint8[2] = (override_speed & 0xff);
-					Serial.println ("Overriding speed.");
+					if(debug_messages) {
+						Serial.println ("Overriding speed.");
+					}
 				}
 			}
 		}
@@ -503,7 +508,7 @@ void setup()
 	debug_messages = false;
 	Serial.begin(115200);
 	delay(2000);
-	Serial.println("Waas2SF1.");
+	Serial.println("gps_j1939");
 	autosteer_source = 0;
 	autosteer_lat = 0;
 	autosteer_lon = 0;
@@ -529,7 +534,7 @@ void setup()
 	Can0.enableFIFOInterrupt();
 	Can1.enableFIFOInterrupt();
 
-#ifdef TEENSY_TFT
+#    ifdef TEENSY_TFT
 	tft.init(240, 240);
 	tft.setRotation(0);
 	tft.fillScreen(0xffff);
@@ -564,7 +569,7 @@ void setup()
 
 	}
 	*/
-#endif //TEENSY_TFT
+#    endif //TEENSY_TFT
 
 #else
 	Can0.begin(CAN_BPS_250K);
@@ -577,7 +582,7 @@ void setup()
 
 	Can0.attachCANInterrupt(can0_got_frame);
 	Can1.attachCANInterrupt(can1_got_frame);
-	Serial.println("Waiting for messages.");
+	//Serial.println("Waiting for messages.");
 #endif
 }
 
@@ -598,7 +603,7 @@ void loop()
 			autosteer_source = 0;
 		}
 
-		if (millis() - last_time > 1000) {
+		if (millis() - last_time > 500) {
 #ifdef TEENSY_TFT
 			tft.setTextColor(rgb(0,0,0), 0xffff);
 			tft.setFont(LiberationMono_20);
@@ -622,6 +627,7 @@ void loop()
 				tft_drawDouble(autosteer_heading,2,5,80);
 				tft.setCursor(5,217);
 				tft.setFont(Arial_16_Bold);
+
 				switch (autosteer_source) {
 				case 0: //inadequate GPS
 					tft.setTextColor(ST77XX_RED,0xffff);
@@ -669,7 +675,7 @@ void loop()
 			}
 #ifndef TEENSY_TFT
 			else {
-				Serial.println("Waiting for data.");
+				//Serial.println("Waiting for data.");
 			}
 #endif
 
@@ -681,6 +687,25 @@ void loop()
 
 #ifdef EXTGPS_PX1172RH
 			if (psti_process(c)) {
+				Serial.print(autosteer_lat,7);
+				Serial.print(",");
+				Serial.print(autosteer_lon,7);
+				Serial.print(",");
+				Serial.print(autosteer_altitude);
+				Serial.print(",");
+				Serial.print(autosteer_heading);
+				Serial.print(",");
+				Serial.print(autosteer_roll);
+				Serial.print(",");
+				Serial.print(autosteer_yawrate);
+				Serial.print(",");
+				Serial.print(autosteer_orig_lat,7);
+				Serial.print(",");
+				Serial.print(autosteer_orig_lon,7);
+				Serial.print(",");
+				Serial.println(autosteer_orig_altitude);
+
+
 				autosteer_lastext = millis();
 				autosteer_source = 3; //tell CAN proxy we're injecting GPS positions now
 				//if external RTK, inject a CAN message with our position
