@@ -217,6 +217,7 @@ bool STINMEA::process(char c)
 		// Terminate buffer then reset pointer
 		*_ptr = '\0';
 		_ptr = _buffer;
+		_type = 0;
 
 		if (*_buffer == '$' && testChecksum(_buffer)) {
 			// Valid message

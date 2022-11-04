@@ -1,6 +1,8 @@
 #include "px1172rh.h"
 #include "stinmea.h"
 #include "haversine.h"
+#include "kfilter1.h"
+#include "SimpleKalmanFilter.h"
 	
 extern double antenna_forward;
 extern double antenna_height;
@@ -15,16 +17,19 @@ extern double autosteer_speed;
 extern double autosteer_altitude;
 extern char autosteer_mode;
 
-uint8_t year=0, month=0, day=0;
+extern double autosteer_orig_lat;
+extern double autosteer_orig_lon;
+extern double autosteer_orig_altitude;
+
+uint16_t year=0; 
+uint8_t month=0, day=0;
 uint8_t hour=0, minute=0, seconds=0, hundredths=0;
-long latitude=0;
-long longitude=0;
-long altitude=0;
-long pitch=0;
-long heading=0;
-long heading90=0;
-double lat=0;
-double lon=0;
+double latitude=0;
+double longitude=0;
+double altitude=0;
+double heading=0;
+double heading90=0;
+double roll=0;
 bool got_pos=false;
 bool got_attitude=false;
 
@@ -36,17 +41,9 @@ char nmea_buffer[160];
 STINMEA sti(nmea_buffer, sizeof(nmea_buffer)); //handles PSTI
 //SimpleNMEAParser gga(nmea_buffer1, sizeof(nmea_buffer1); //handles GGA
 
-float yaw_P = 1.0f;
-float yaw_varProcess = 0.0003f;
-float yaw_Xe = 0;
-
-float heading_P = 1.0f;
-float heading_varProcess = 0.0003f;
-float heading_Xe = 0;
-
-float roll_P = 1.0f;
-float roll_varProcess = 0.0003f;
-float roll_Xe = 0;
+KFilter1 yawrate_filter(0.1, 1.0f, 0.0003f);
+KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
+KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
 
 bool psti_process(char c) {
 	if (sti.process(c)) {
@@ -54,27 +51,27 @@ bool psti_process(char c) {
 			uint8_t myear, mmonth, mday;
 			uint8_t mhour, mminute, mseconds, mhundredths;
 
-			myear = sti.getYear();
-			mmonth = sti.getMonth();
-			mday = sti.getDay();
+			//myear = sti.getYear();
+			//mmonth = sti.getMonth();
+			//mday = sti.getDay();
 			mhour = sti.getHour();
 			mminute = sti.getMinute();
 			mseconds = sti.getSecond();
 			mhundredths = sti.getHundredths();
 
 			//if this messages has a different timestamp...
-			if (year != myear ||
+			if (/*year != myear ||
 				month != mmonth ||
-				day != mday ||
+				day != mday ||*/
 				hour != mhour ||
 				minute != mminute ||
 				seconds != mseconds ||
 				hundredths != mhundredths) {
 				// start a new message pair
 				got_attitude=false;
-				year = myear;
-				month = mmonth;
-				day = mday;
+				//year = myear;
+				//month = mmonth;
+				//day = mday;
 				hour = mhour;
 				minute = mminute;
 				seconds = mseconds;
@@ -82,35 +79,35 @@ bool psti_process(char c) {
 			}
 
 			got_pos = true;
-			latitude = sti.getLatitude();
-			longitude = sti.getLongitude();
-			altitude = sti.getAltitude();
+			latitude = sti.getLatitude() / 10000000.0;
+			longitude = sti.getLongitude() / 10000000.0;
+			altitude = sti.getAltitude() / 1000.0;
 		}
 
 		if (sti.getType() == 36) {
 			uint8_t myear, mmonth, mday;
 			uint8_t mhour, mminute, mseconds, mhundredths;
-			myear = sti.getYear();
-			mmonth = sti.getMonth();
-			mday = sti.getDay();
+			//myear = sti.getYear();
+			//mmonth = sti.getMonth();
+			//mday = sti.getDay();
 			mhour = sti.getHour();
 			mminute = sti.getMinute();
 			mseconds = sti.getSecond();
 			mhundredths = sti.getHundredths();
 
 			//if this messages has a different timestamp...
-			if (year != myear ||
+			if (/*year != myear ||
 				month != mmonth ||
-				day != mday ||
+				day != mday ||*/
 				hour != mhour ||
 				minute != mminute ||
 				seconds != mseconds ||
 				hundredths != mhundredths) {
 				// start a new message pair
 				got_pos=false;
-				year = myear;
-				month = mmonth;
-				day = mday;
+				//year = myear;
+				//month = mmonth;
+				//day = mday;
 				hour = mhour;
 				minute = mminute;
 				seconds = mseconds;
@@ -119,94 +116,72 @@ bool psti_process(char c) {
 
 			got_attitude = true;
 			//heading is 90 degress off of the dual antenna heading
-			heading90 = sti.getHeading();
+			heading90 = sti.getHeading() / 100.0;
+			//heading90 = heading_filter.filter(heading90);
 
-			/*
-			heading_Pc = heading_P + heading_varProcess;
-			heading_G = heading_Pc / (heading_Pc / heading90);
-			heading_P = (1 - heading_G) * heading_Pc;
-			heading_Xp = heading_Xe;
-			heading_Zp = heading_Xp;
-			heading_Xe = (heading_G * (yaw_rate - heading_Zp)) + heading_Xp;
-			heading90 = heading_Xe; //hopefully filtered heading
-			*/
 
-			heading = (heading90 + 9000);
+			heading = (heading90 + 90);
 			if (heading < 0)
-				heading += 36000;
-			if (heading >= 36000)
-				heading -= 36000;
+				heading += 360;
+			if (heading >= 360)
+				heading -= 360;
 
-			//heading = sti.getHeading();
-			pitch = sti.getPitch();
+			roll = sti.getPitch() / 100.0;
+			//filter roll
+			//roll = roll_filter.filter(roll);
 		}
 		if (got_pos && got_attitude) {
 			double tilt_offset;
 			double alt_offset1;
 			double alt_offset2;
 			double center_offset;
-			double roll;
 			float yaw_rate;
 
-			float roll_Pc, roll_G, roll_Xp, roll_Zp; //for filtering yaw rate
-			float yaw_Pc, yaw_G, yaw_Xp, yaw_Zp; //for filtering yaw rate
 			float heading_delta;
 
-			//we need to do some trigonometry so unpack the values
-			//to doubles
-			lat = latitude / 10000000.0;
-			lon = longitude / 10000000.0;
-			roll = -pitch / 100.0;
+			got_pos = false;
+			got_attitude = false; //clear for next one
 
-			//filter roll
-			roll_Pc = roll_P + roll_varProcess;
-			roll_G = roll_Pc / (roll_Pc / roll);
-			roll_P = (1 - roll_G) * roll_Pc;
-			roll_Xp = roll_Xe;
-			roll_Zp = roll_Xp;
-			roll_Xe = (roll_G * (roll - roll_Zp)) + roll_Xp;
-			roll = roll_Xe; //hopefully this is right
+			autosteer_orig_lat = latitude;
+			autosteer_orig_lon = longitude;
+			autosteer_orig_altitude = altitude; 
 
 			heading_delta = heading - last_heading;
 			if (heading_delta > 180) heading_delta -= 360; //yawing to the left across 0
 			else if (heading_delta <= -180) heading_delta += 360; //yawing to right across 0
-			yaw_rate = heading_delta / ((last_heading_time - millis()) * 1000); //degrees/second
-			last_heading_time = millis();
-			yaw_Pc = yaw_P + yaw_varProcess;
-			yaw_G = yaw_Pc / (yaw_Pc / roll);
-			yaw_P = (1 - yaw_G) * yaw_Pc;
-			yaw_Xp = yaw_Xe;
-			yaw_Zp = yaw_Xp;
-			yaw_Xe = (yaw_G * (yaw_rate - yaw_Zp)) + yaw_Xp;
-			autosteer_yawrate = yaw_Xe; //hopefully filtered yaw rate to send back to main program
+			last_heading = heading;
+
+			yaw_rate = heading_delta / 0.2;  //degrees/second
+			//yaw_rate = yawrate_filter.filter(yaw_rate);
+			autosteer_yawrate = yaw_rate;
 
 			//offset from the tilt of the tractor
 			tilt_offset = sin(roll * haversine::toRadians) * antenna_height;
 
-			//account for distance from left antenna to center of tractor
+			//account for distance from right antenna to center of tractor
 			center_offset = cos(roll * haversine::toRadians) * antenna_right;
 
 			//calculate ground-level elevation in center of tractor,
-			//relative to left antenna
+			//relative to right antenna
 			alt_offset1 = cos(roll * haversine::toRadians) * antenna_height;
 			alt_offset2 = sin(roll * haversine::toRadians) * center_offset;
 
-			haversine::move_distance_bearing(lat, lon, (double)heading90 / 100.0,
+			haversine::move_distance_bearing(latitude, longitude, (double)heading90,
 											 tilt_offset + center_offset);
 
-			altitude -= ((alt_offset1 - alt_offset2) * 1000.0);
+			altitude -= alt_offset1 - alt_offset2; //TODO: check me
 			autosteer_altitude = altitude;
 
 			if (antenna_forward) {
 				//if gps is forward of axle, translate the position rearward
-				haversine::move_distance_bearing(lat, lon, (double)heading / 100.0, 
+				haversine::move_distance_bearing(latitude, longitude, (double)heading, 
 												 -antenna_forward);
 			}
 
 			if (sti.getMode() == 'R' || sti.getMode() == 'F') {
 				autosteer_mode = sti.getMode();
-				autosteer_lat = lat;
-				autosteer_lon = lon;
+				autosteer_lat = latitude;
+				autosteer_lon = longitude;
 				autosteer_roll = roll;
 				autosteer_heading = heading;
 				
