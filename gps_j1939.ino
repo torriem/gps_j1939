@@ -724,6 +724,7 @@ void loop()
 				msg.set_id(j1939_encode(65267, 3, 28, 255));
 				msg.get_data()->uint32[0] = (autosteer_lat + 210.0) * 10000000;
 				msg.get_data()->uint32[1] = (autosteer_lon + 210.0) * 10000000;
+				//msg.get_data()->uint64 = 0x3a94850f9ae4908c; //fixed position test
 				send_message(msg);
 
 				//vehicle direction and speed
@@ -733,6 +734,7 @@ void loop()
 				msg.get_data()->uint16[1] = autosteer_speed * 256;
 				msg.get_data()->uint16[2] = 200 * 128; //not sure how critical vehicle pitch is
 				msg.get_data()->uint16[3] = (autosteer_altitude / 1000.0 + 2500) * 8;
+				//msg.get_data()->uint64 = 0x669061e0037c7ff4; //fixed position test
 				send_message(msg);
 
 				//TODO: synthesis 51, 52, 53, 0xe1 proprietary messages
@@ -740,17 +742,19 @@ void loop()
 				//GPS Status message
 				msg.set_id(j1939_encode(65535,3,28,255));
 				msg.get_data()->uint64 = 0x02120b15020351; //little endian
+				//msg.get_data()->uint64 = 0xff191987ff020351; //fixed position test
 				send_message(msg);
 
 				//PGN 65535, first byte 52, priority 3, src 28, dest 255
 				//GPS satellites used message
 				msg.set_id(j1939_encode(65535,3,28,255));
 				msg.get_data()->uint64 = 0x1fd47d4260a10552; //little endian
+				//msg.get_data()->uint64 = 0x7875610000f0f052; //fixed position test
 				send_message(msg);
 
 				//PGN 65535, first byte 53, priority 6, src 28, dest 255
 				//Differential receiver status
-				msg.set_id(j1939_encode(65535,6,28,255));
+				msg.set_id(j1939_encode(65535,3,28,255));
 				msg.get_data()->uint64 = 0x544110404a900153; //little endian
 
 				if (autosteer_mode == 'R')
@@ -758,20 +762,51 @@ void loop()
 				else
 					msg.get_data()->bytes[3] = 0x66;
 				send_message(msg);
+
+				//65535 first byte 54
+				//not required on brown box
+				//msg.set_id(j1939_encode(65535,3,28,255));
+				//msg.get_data()->uint64 = 0x033020b90a000054;
+				//send_message(msg);
 					
 				//PGN 65535, first byte 0xe1, priority 2, src 28, dest 255
 				//TCM pitch, roll, etc.
-				msg.set_id(j1939_encode(65535,2,28,255));
+				msg.set_id(j1939_encode(65535,3,28,255));
 				msg.get_data()->uint16[0] = 0xe0e1;
 				msg.get_data()->uint16[1] = (autosteer_roll + 200) * 128.0;
 				msg.get_data()->uint16[2] = (autosteer_yawrate + 200) * 128.0;
 				msg.get_data()->uint16[3] = 200 * 128; //probably vehicle pitch on a 3000.
+
+				//msg.get_data()->uint64 = 0xf1ff1dfcffffffe3; //fixed-test
 				send_message(msg);
 
+				//not sure about this one! TCM message -- may be version number?
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0xf1ff1dfcffffffe3;
+				msg.get_data()->uint64 = 0xfb0000fc00ffffe3;
+				send_message(msg);
+
+				//TCM message.... investigate
+				msg.set_id(j1939_encode(65535,6,28,255));
+				msg.get_data()->uint64 = 0xffffff00f408fce0; //should be once a second.
+				msg.get_data()->uint64 = 0xfffffffff00000e0; //from sf3000
+				send_message(msg);
+
+				//not sure about this one!
+				//Not required on brown box
+				//msg.set_id(j1939_encode(65535,3,28,255));
+				//msg.get_data()->uint64 = 0xffffffffffc000a0;
+				//send_message(msg);
+
+				//TODO: once per second there's a 61456 pgn message. 
+				//seems to be a counter of some kind
 
 				//PGN 65254, priority 3, src 28, dest 255
 				//date and time
+				//TODO: required on brown box!
 				msg.set_id(j1939_encode(65254,3,28,255));
+				msg.get_data()->uint64 = 0x7d7d24300c00026c;
+				send_message(msg);
 
 
 			}
