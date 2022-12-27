@@ -73,7 +73,7 @@
 #define FEET 0.3048
 
 //modes depending on where plugged in
-#define ON_ROOF 1 //plugged into roof in place of receiver
+#define ON_ROOF 1 //plugged into roof in place of receiver, or near monitor on aux plug
 #define BETWEEN_MODIFY 2 //plugged between existing receiver and monitor
 #define BETWEEN 3 //plugged between pillar and monitor, no existing receiver
 
@@ -81,7 +81,8 @@ double antenna_forward=0; //antenna this far ahead of axle
 double antenna_height=120 * INCHES; //inches above ground
 double antenna_right=26.5 * INCHES; //for double antenna, how far away the right-most antenna is from the from center
 #define EXT_GPS_TIMEOUT 5000 //after 5 seconds of no external position, revert to internal.
-uint8_t gps_mode=BETWEEN_MODIFY;
+//uint8_t gps_mode=BETWEEN_MODIFY;
+uint8_t gps_mode=ON_ROOF;
 
 
 //external GPS source variables
@@ -113,7 +114,8 @@ CANFrame vehicle_position_frame;
 CANFrame vehicle_dirspeed_frame;
 CANFrame tcm_roll_frame;
 
-int8_t monitor_can = -1;
+//int8_t monitor_can = -1;
+int8_t monitor_can = 0;
 
 uint16_t override_speed = 0;
 
@@ -230,10 +232,15 @@ long j1939_encode(unsigned long pgn, byte priority, byte src_addr, byte dest_add
 {
 
 	long id;
-	id = (priority & 0x01c) << 26;
+	id = (priority & 0x07) << 26; //three bits only
+	/* if a peer to peer message, encode dest_addr */
+	if ((pgn > 0 && pgn <= 0xEFFF) ||
+	    (pgn > 0x10000 && pgn <= 0x1efff)) {
+	    	pgn = pgn & 0x01ff00;
+		pgn = pgn | dest_addr;
+	}
 	id = id | (pgn << 8);
 	id = id | src_addr;
-	id = id | dest_addr << 8;
 
 	return id;
 }
@@ -248,6 +255,8 @@ void got_frame(CANFrame &frame, int which) {
 	byte srcaddr;
 	byte destaddr;
 	bool send;
+
+	if (gps_mode == ON_ROOF) return; //ignore all in-coming messages for now; we'll only be synthesizing gps.
 
 	send = true;
 
