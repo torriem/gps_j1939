@@ -20,6 +20,7 @@ extern char autosteer_mode;
 extern double autosteer_orig_lat;
 extern double autosteer_orig_lon;
 extern double autosteer_orig_altitude;
+extern uint64_t autosteer_datetime;
 
 uint16_t year=0; 
 uint8_t month=0, day=0;
@@ -87,9 +88,9 @@ bool psti_process(char c) {
 		if (sti.getType() == 36) {
 			uint8_t myear, mmonth, mday;
 			uint8_t mhour, mminute, mseconds, mhundredths;
-			//myear = sti.getYear();
-			//mmonth = sti.getMonth();
-			//mday = sti.getDay();
+			year = sti.getYear();
+			month = sti.getMonth();
+			day = sti.getDay();
 			mhour = sti.getHour();
 			mminute = sti.getMinute();
 			mseconds = sti.getSecond();
@@ -138,6 +139,15 @@ bool psti_process(char c) {
 			float yaw_rate;
 
 			float heading_delta;
+
+			autosteer_datetime = ((float)seconds + hundredths /100.0) * 4;
+			autosteer_datetime |= ((uint64_t)minute << 8);
+			autosteer_datetime |= ((uint64_t)hour << 16);
+			autosteer_datetime |= ((uint64_t)month << 24);
+			autosteer_datetime |= (((uint64_t)day * 4) << 32);
+			autosteer_datetime |= (((uint64_t)year - 1985) << 40);
+			autosteer_datetime |= ((uint64_t)125 << 48); //zero
+			autosteer_datetime |= ((uint64_t)125 << 56); //zero
 
 			got_pos = false;
 			got_attitude = false; //clear for next one
