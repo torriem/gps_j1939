@@ -96,6 +96,7 @@ double autosteer_yawrate = 0;
 double autosteer_speed = 0;
 double autosteer_altitude = 0;
 double autosteer_orig_altitude = 0;
+uint64_t autosteer_datetime = 0x7d7d24300c00026c;
 
 int autosteer_source=0; //0 = inadequate, 1=WAAS, 2 = SF1 or higher, 3 = External
 long autosteer_lastext=0;
@@ -780,23 +781,22 @@ void loop()
 				//msg.get_data()->uint64 = 0xf1ff1dfcffffffe3; //fixed-test
 				send_message(msg);
 
-				//not sure about this one! TCM message -- may be version number?
+				//not sure about this one! TCM message
 				msg.set_id(j1939_encode(65535,3,28,255));
 				msg.get_data()->uint64 = 0xf1ff1dfcffffffe3;
-				msg.get_data()->uint64 = 0xfb0000fc00ffffe3;
 				send_message(msg);
 
 				//TCM message.... investigate
 				msg.set_id(j1939_encode(65535,6,28,255));
 				msg.get_data()->uint64 = 0xffffff00f408fce0; //should be once a second.
-				msg.get_data()->uint64 = 0xfffffffff00000e0; //from sf3000
+				//msg.get_data()->uint64 = 0xfffffffff00000e0; //from sf3000
 				send_message(msg);
 
 				//not sure about this one!
 				//Not required on brown box
-				//msg.set_id(j1939_encode(65535,3,28,255));
-				//msg.get_data()->uint64 = 0xffffffffffc000a0;
-				//send_message(msg);
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0xffffffffffc000a0;
+				send_message(msg);
 
 				//TODO: once per second there's a 61456 pgn message. 
 				//seems to be a counter of some kind
@@ -805,7 +805,8 @@ void loop()
 				//date and time
 				//TODO: required on brown box!
 				msg.set_id(j1939_encode(65254,3,28,255));
-				msg.get_data()->uint64 = 0x7d7d24300c00026c;
+				msg.get_data()->uint64 = autosteer_datetime;
+				Serial.println(autosteer_datetime);
 				send_message(msg);
 
 
