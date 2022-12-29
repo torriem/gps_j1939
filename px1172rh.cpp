@@ -200,7 +200,7 @@ bool psti_process(char c) {
 
 				//slow but faster than parsing GGA
 				double speed = sqrt(north_speed * north_speed + east_speed * east_speed);
-				autosteer_speed = speed / 16666.67; //convert to km/h
+				autosteer_speed = speed * 3.6 / 1000.0; //convert to km/h
 
 				return true;
 			}

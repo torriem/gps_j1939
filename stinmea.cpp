@@ -314,11 +314,11 @@ bool STINMEA::processSTI(const char *s)
 		_altitude = parseFloat(s, 3, &s); //mm
 
 		//east vel
-		_eastVelocity = parseFloat(s,3, &s); //mm/s
+		_eastVelocity = parseFloat(s,3, &s); //m/s
 		//north vel
-		_northVelocity = parseFloat(s,3, &s); //mm/s
+		_northVelocity = parseFloat(s,3, &s); //m/s
 		//vert vel
-		_vertVelocity = parseFloat(s,3, &s); //mm/2
+		_vertVelocity = parseFloat(s,3, &s); //m/2
 		//date of fix
 		s = parseDate(s);
 		//mode
