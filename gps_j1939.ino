@@ -303,11 +303,12 @@ void got_frame(CANFrame &frame, int which) {
 			case 0x53: // GPS accuracy level and steering flag
 				send=true;
 				if (autosteer_source == 3) {
+					send = false; //synthesized below.
 					//external GPS, RTK presumably
 
 					//we could try setting to 0x70 and 0x7a
-					frame.get_data()->bytes[4] = 0x40; //steering toggle should always be on
-					frame.get_data()->bytes[3] = 0x7a; //RTK, accuracy 10
+					//frame.get_data()->bytes[4] = 0x40; //steering toggle should always be on
+					//frame.get_data()->bytes[3] = 0x7a; //RTK, accuracy 10
 				} else {
 					uint8_t signal_type;
 
@@ -345,18 +346,34 @@ void got_frame(CANFrame &frame, int which) {
 				//Serial.println("got 0x53");
 				break;
 			case 0xe1: //TCM information
+				float roll, yawrate;
+				roll = frame.get_data()->uint16[1] / 128.0 - 200.0;
+				yawrate = frame.get_data()->uint16[2] / 128.0 - 200.0;
+
 				if (autosteer_source != 3) {
 					//if not using external GPS, pass this through
 					send=true;
-					tcm_roll_frame = frame;
 					autosteer_roll = frame.get_data()->uint16[1] / 128.0 - 200.0;
 					autosteer_yawrate = frame.get_data()->uint16[2] / 128.0 - 200.0;
 				}
 				//Serial.println("got 0xe1");
 				break;
 			default:
-				send = true;
-				//pass all other messages through
+				if (autosteer_source == 3) {
+					char firstbyte = frame.get_data()->bytes[0];
+					switch(firstbyte) {
+					case 0x51:
+					case 0x52:
+						//these frames we'll synthesize
+						send = false;
+						break;
+					default:
+						send = true;
+					}
+				} else {
+					send = true;
+					//pass all other messages through
+				}
 
 				/*
 				if(destaddr == 255) {
@@ -699,13 +716,15 @@ void loop()
 				Serial.print(autosteer_lat,7);
 				Serial.print(",");
 				Serial.print(autosteer_lon,7);
-				Serial.print(",");
+				Serial.print(", alt ");
 				Serial.print(autosteer_altitude);
-				Serial.print(",");
+				Serial.print(", hdg ");
 				Serial.print(autosteer_heading);
-				Serial.print(",");
+				Serial.print(", spd ");
+				Serial.print(autosteer_speed);
+				Serial.print(", rol ");
 				Serial.print(autosteer_roll);
-				Serial.print(",");
+				Serial.print(", yr");
 				Serial.print(autosteer_yawrate);
 				Serial.print(",");
 				Serial.print(autosteer_orig_lat,7);
@@ -727,13 +746,19 @@ void loop()
 				//msg.get_data()->uint64 = 0x3a94850f9ae4908c; //fixed position test
 				send_message(msg);
 
+				// vehicle direction and speed
+				// heading is uint16[0] / 128.0
+				// speed is uint16[1] / 256.0 for km/h
+				// pitch is uint16[2] / 128.0 - 200.0 for angle, pos is climbing, neg is sinking
+				// altitude is uint16[3] / 0.125 - 2500 for metres.
+
 				//vehicle direction and speed
 				//pgn 65256, priority 3, src 28, dest 255
 				msg.set_id(j1939_encode(65256,3,28,255));
-				msg.get_data()->uint16[0] = autosteer_heading / 100.0 * 128;
+				msg.get_data()->uint16[0] = autosteer_heading * 128;
 				msg.get_data()->uint16[1] = autosteer_speed * 256;
 				msg.get_data()->uint16[2] = 200 * 128; //not sure how critical vehicle pitch is
-				msg.get_data()->uint16[3] = (autosteer_altitude / 1000.0 + 2500) * 8;
+				msg.get_data()->uint16[3] = (autosteer_altitude + 2500) * 8;
 				//msg.get_data()->uint64 = 0x669061e0037c7ff4; //fixed position test
 				send_message(msg);
 
@@ -742,53 +767,53 @@ void loop()
 				//TODO: required on brown box!
 				msg.set_id(j1939_encode(65254,3,28,255));
 				msg.get_data()->uint64 = autosteer_datetime;
-				Serial.println(autosteer_datetime);
 				send_message(msg);
+
+				//PGN 65535, first byte 0xe1, priority 2, src 28, dest 255
+				//TCM pitch, roll, etc.
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint16[0] = 0xe0e1;
+				msg.get_data()->uint16[1] = (autosteer_roll + 200) * 128.0;
+				msg.get_data()->uint16[2] = (autosteer_yawrate + 200) * 128.0;
+				msg.get_data()->uint16[3] = 200 * 128; //probably vehicle pitch on a 3000.
+
+				//msg.get_data()->uint64 = 0xf1ff1dfcffffffe3; //fixed-test
+				send_message(msg);
+
+				//PGN 65535, first byte 51, priority 3, src 28, dest 255
+				//GPS Status message
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0x02120b15020351; //little endian
+				//msg.get_data()->uint64 = 0xff191987ff020351; //fixed position test
+				send_message(msg);
+
+				//PGN 65535, first byte 52, priority 3, src 28, dest 255
+				//GPS satellites used message
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0x1fd47d4260a10552; //little endian
+				//msg.get_data()->uint64 = 0x7875610000f0f052; //fixed position test
+				send_message(msg);
+
+				//PGN 65535, first byte 53, priority 6, src 28, dest 255
+				//Differential receiver status
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0x544110404a900153; //little endian
+
+				if (autosteer_mode == 'R')
+					msg.get_data()->bytes[3] = 0x7a;
+				else
+					msg.get_data()->bytes[3] = 0x66;
+				send_message(msg);
+
 
 				if (gps_mode == ON_ROOF) {
 					//TODO: synthesis 51, 52, 53, 0xe1 proprietary messages
-					//PGN 65535, first byte 51, priority 3, src 28, dest 255
-					//GPS Status message
-					msg.set_id(j1939_encode(65535,3,28,255));
-					msg.get_data()->uint64 = 0x02120b15020351; //little endian
-					//msg.get_data()->uint64 = 0xff191987ff020351; //fixed position test
-					send_message(msg);
-
-					//PGN 65535, first byte 52, priority 3, src 28, dest 255
-					//GPS satellites used message
-					msg.set_id(j1939_encode(65535,3,28,255));
-					msg.get_data()->uint64 = 0x1fd47d4260a10552; //little endian
-					//msg.get_data()->uint64 = 0x7875610000f0f052; //fixed position test
-					send_message(msg);
-
-					//PGN 65535, first byte 53, priority 6, src 28, dest 255
-					//Differential receiver status
-					msg.set_id(j1939_encode(65535,3,28,255));
-					msg.get_data()->uint64 = 0x544110404a900153; //little endian
-
-					if (autosteer_mode == 'R')
-						msg.get_data()->bytes[3] = 0x7a;
-					else
-						msg.get_data()->bytes[3] = 0x66;
-					send_message(msg);
-
 					//65535 first byte 54
 					//not required on brown box
 					//msg.set_id(j1939_encode(65535,3,28,255));
 					//msg.get_data()->uint64 = 0x033020b90a000054;
 					//send_message(msg);
 						
-					//PGN 65535, first byte 0xe1, priority 2, src 28, dest 255
-					//TCM pitch, roll, etc.
-					msg.set_id(j1939_encode(65535,3,28,255));
-					msg.get_data()->uint16[0] = 0xe0e1;
-					msg.get_data()->uint16[1] = (autosteer_roll + 200) * 128.0;
-					msg.get_data()->uint16[2] = (autosteer_yawrate + 200) * 128.0;
-					msg.get_data()->uint16[3] = 200 * 128; //probably vehicle pitch on a 3000.
-
-					//msg.get_data()->uint64 = 0xf1ff1dfcffffffe3; //fixed-test
-					send_message(msg);
-
 					//not sure about this one! TCM message
 					msg.set_id(j1939_encode(65535,3,28,255));
 					msg.get_data()->uint64 = 0xf1ff1dfcffffffe3;
