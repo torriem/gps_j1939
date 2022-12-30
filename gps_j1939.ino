@@ -81,7 +81,10 @@ double antenna_forward=0; //antenna this far ahead of axle
 double antenna_height=120 * INCHES; //inches above ground
 double antenna_right=26.5 * INCHES; //for double antenna, how far away the right-most antenna is from the from center
 #define EXT_GPS_TIMEOUT 5000 //after 5 seconds of no external position, revert to internal.
-uint8_t gps_mode=BETWEEN_MODIFY;
+//uint8_t gps_mode=BETWEEN_MODIFY;
+uint8_t gps_mode=ON_ROOF;
+//int8_t monitor_can = -1;
+int8_t monitor_can = 0;
 
 
 //external GPS source variables
@@ -113,8 +116,6 @@ double tractor_lon = -400;
 CANFrame vehicle_position_frame;
 CANFrame vehicle_dirspeed_frame;
 CANFrame tcm_roll_frame;
-
-int8_t monitor_can = -1;
 
 uint16_t override_speed = 0;
 
@@ -807,6 +808,22 @@ void loop()
 
 
 				if (gps_mode == ON_ROOF) {
+					msg.set_id(j1939_encode(61184,5,28,128));
+					msg.get_data()->uint64 = 0xff05f100ef0000f1;
+					msg.set_length(8);
+					send_message(msg);
+
+					msg.set_id(j1939_encode(61184,5,28,128));
+					msg.get_data()->uint64 = 0x00000000003b003f;
+					msg.set_length(3);
+					send_message(msg);
+
+					msg.set_id(j1939_encode(61184,5,28,128));
+					msg.get_data()->uint64 = 0x0000000000c3003f;
+					msg.set_length(3);
+					send_message(msg);
+
+					msg.set_length(8);
 					//TODO: synthesis 51, 52, 53, 0xe1 proprietary messages
 					//65535 first byte 54
 					//not required on brown box
