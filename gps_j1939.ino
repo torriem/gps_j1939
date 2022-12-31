@@ -80,7 +80,7 @@
 double antenna_forward=0; //antenna this far ahead of axle
 double antenna_height=120 * INCHES; //inches above ground
 double antenna_right=26.5 * INCHES; //for double antenna, how far away the right-most antenna is from the from center
-#define EXT_GPS_TIMEOUT 5000 //after 5 seconds of no external position, revert to internal.
+#define EXT_GPS_TIMEOUT 200 //after 200ms of no external position, show invalid GPS position
 //uint8_t gps_mode=BETWEEN_MODIFY;
 uint8_t gps_mode=ON_ROOF;
 //int8_t monitor_can = -1;
@@ -295,7 +295,7 @@ void got_frame(CANFrame &frame, int which) {
 		}
 	}
 	if (srcaddr == 28) {
-		if (autosteer_source == 3) return; //completely block GPS receiver
+		//if (autosteer_source == 3) return; //completely block GPS receiver
 		//receiver_from = which; //remember which CAN interface the GPS receiver is on
 		send=false;
 
@@ -654,6 +654,49 @@ void loop()
 		//if it's been a certain amount of time, revert to the tractor receiver
 		if (autosteer_source == 3 && millis() - autosteer_lastext > EXT_GPS_TIMEOUT) {
 			autosteer_source = 0;
+			if (gps_mode == ON_ROOF) {
+				autosteer_lastext = millis();
+				//emit null position messages to keep system happy
+				msg.set_id(j1939_encode(65267, 3, 28, 255));
+				msg.get_data()->uint64 = 0xffffffffffffffff; //unknown GPS position
+				send_message(msg);
+
+				msg.set_id(j1939_encode(65254,3,28,255));
+				msg.get_data()->uint64 = 0xffff3ffd00000000; // unknown TIME
+				send_message(msg);
+
+				msg.set_id(j1939_encode(65256,3,28,255));
+				msg.get_data()->uint64 = 0xffff6400ffffffff; // unknown attitude
+				send_message(msg);
+	
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0x0000000000000151; // no GPS
+				send_message(msg);
+
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0xffffff0000000052; //no GPS
+				send_message(msg);
+
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0x5441104000000053; //no GPS
+				send_message(msg);
+
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0x3757b2801e000054; //no GPS
+				send_message(msg);
+
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0xfb0000fc00ffffe3; //unintialized TCM
+				send_message(msg);
+
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0x00ffffffffffe0e1; // unintialized TCM
+				send_message(msg);
+
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0xfffffffff00000e0; //unintialized TCM
+				send_message(msg);
+			}
 		}
 
 		if (millis() - last_time > 500) {
@@ -796,9 +839,6 @@ void loop()
 				//msg.get_data()->uint64 = 0x669061e0037c7ff4; //fixed position test
 				send_message(msg);
 
-				//msg.get_data()->uint64 = 0xf1ff1dfcffffffe3; //fixed-test
-				send_message(msg);
-
 				//PGN 65535, first byte 51, priority 3, src 28, dest 255
 				//GPS Status message
 				msg.set_id(j1939_encode(65535,3,28,255));
@@ -851,7 +891,8 @@ void loop()
 				send_message(msg);
 
 
-				/*if (gps_mode == ON_ROOF) {
+				/*
+				if (gps_mode == ON_ROOF) {
 					msg.set_id(j1939_encode(61184,5,28,128));
 					msg.get_data()->uint64 = 0xff05f100ef0000f1;
 					msg.set_length(8);
@@ -873,9 +914,9 @@ void loop()
 					
 					//not sure about this one!
 					//Not required on brown box
-					msg.set_id(j1939_encode(65535,3,28,255));
-					msg.get_data()->uint64 = 0xffffffffffc000a0;
-					send_message(msg);
+					//msg.set_id(j1939_encode(65535,3,28,255));
+					//msg.get_data()->uint64 = 0xffffffffffc000a0;
+					//send_message(msg);
 
 					//TODO: once per second there's a 61456 pgn message. 
 					//seems to be a counter of some kind
