@@ -80,7 +80,7 @@
 double antenna_forward=0; //antenna this far ahead of axle
 double antenna_height=120 * INCHES; //inches above ground
 double antenna_right=26.5 * INCHES; //for double antenna, how far away the right-most antenna is from the from center
-#define EXT_GPS_TIMEOUT 200 //after 200ms of no external position, show invalid GPS position
+#define EXT_GPS_TIMEOUT 400 //after 200ms of no external position, show invalid GPS position
 //uint8_t gps_mode=BETWEEN_MODIFY;
 uint8_t gps_mode=ON_ROOF;
 //int8_t monitor_can = -1;
@@ -194,16 +194,21 @@ int16_t tft_drawDouble(double floatNumber, int dp, int poX, int poY)
 #endif
 #endif
 
-
 static inline void print_hex(uint8_t *data, int len) {
 	char temp[4];
-	if (debug_messages) {
-		for (int b=0;b < len; b++) {
-			sprintf(temp, "%.2x ",data[b]);
+	for (int b=0;b < len; b++) {
+		sprintf(temp, "%.2x ",data[b]);
+		Serial.print(temp);
+	}
+	for (int b=0;b < len ; b++) {
+		if ((data[b] < 32) || (data[b] > 126))
+			Serial.print(".");
+		else {
+			sprintf(temp, "%c", data[b]);
 			Serial.print(temp);
 		}
-		Serial.println("");
 	}
+	Serial.println("");
 }
 
 void j1939_decode(long ID, unsigned long* PGN, byte* priority, byte* src_addr, byte *dest_addr)
@@ -256,16 +261,25 @@ void got_frame(CANFrame &frame, int which) {
 	byte destaddr;
 	bool send;
 
-	if (gps_mode == ON_ROOF) return; //ignore all in-coming messages for now; we'll only be synthesizing gps.
 
 	send = true;
 
 	j1939_decode(frame.get_id(), &PGN, &priority, &srcaddr, &destaddr);
 
+	if ((srcaddr != 28)) {
+		// seems to work fine with one-way traffic from 
+		// the GPS receiver
+		return;
+
+	}
+
+#if 0
 	/* look for specific frames that we're interested in */
 	if (srcaddr == 240) {
 		//this is coming from the monitor?
 		monitor_can = which;
+
+		return; //skip all messages
 
 		switch(PGN) {
 		case 65096: //vehicle wheel speed
@@ -284,18 +298,71 @@ void got_frame(CANFrame &frame, int which) {
 		case 65535:
 			switch(frame.get_data()->bytes[0]){
 			case 0x31: //maybe speed in here
-				if (override_speed) {
-					frame.get_data()->uint8[1] = (override_speed >> 8);
-					frame.get_data()->uint8[2] = (override_speed & 0xff);
-					if(debug_messages) {
-						Serial.println ("Overriding speed.");
+				if (frame.get_data()->bytes[5] == 5) {
+					//Serial.println("blocking monitor 0x31........05 message");
+					//return;
+					/*
+					if (gps_mode == ON_ROOF) {
+						CANFrame msg; //for generating gps messages
+						msg.set_extended(true);
+						msg.set_length(8); //all our messages are going to be 8 bytes
+						msg.set_id(j1939_encode(65535,3,28,255));
+						msg.get_data()->uint64 = 0xffffffffffc000a0;
+						send_message(msg);
+						Serial.println("Answered monitor?");
 					}
+					*/
 				}
 			}
+			break;
+		case 61184:
+			if(frame.get_data()->uint64 == 0x000000010000011e) {
+				//interrogation of some kind.
+				//Serial.println("blocking 61184 from monitor.");
+				//return;
+
+				/*
+				if (gps_mode == ON_ROOF) {
+					Serial.println("request from monitor.");
+					CANFrame msg; //for generating gps messages
+					msg.set_extended(true);
+					msg.set_length(8); //all our messages are going to be 8 bytes
+					msg.set_id(j1939_encode(65535,3,28,255));
+					msg.get_data()->uint64 = 0xffffffffffc000a0;
+					send_message(msg);
+					Serial.println("Answered monitor?");
+				}
+				*/
+			}
+			break;
+
+		case 60928:
+			if (frame.get_data()->bytes[0] == 30) {
+				CANFrame msg; //for generating gps messages
+				msg.set_extended(true);
+				msg.set_length(7); //all our messages are going to be 8 bytes
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0x0080001700043330;
+				send_message(msg);
+				Serial.println("Answered monitor?");
+			}
+
 		}
+		Serial.print(srcaddr);
+		Serial.print(" ");
+		Serial.print(destaddr);
+		Serial.print(" ");
+		Serial.print(PGN);
+		Serial.print(" ");
+		print_hex(frame.get_data()->bytes, frame.get_length());
 	}
+#endif
+	if (gps_mode == ON_ROOF) return; //ignore all in-coming messages for now; we'll only be synthesizing gps.
+
 	if (srcaddr == 28) {
-		//if (autosteer_source == 3) return; //completely block GPS receiver
+		if (which == 0 ) monitor_can = 1; else monitor_can = 0;
+
+		if (autosteer_source == 3) return; //completely block GPS receiver
 		//receiver_from = which; //remember which CAN interface the GPS receiver is on
 		send=false;
 
@@ -384,6 +451,25 @@ void got_frame(CANFrame &frame, int which) {
 					}
 				} else {
 					send = true;
+					char firstbyte = frame.get_data()->bytes[0];
+					switch(firstbyte) {
+					case 0x51:
+					case 0x52:
+					case 0x53:
+					case 0x54:
+					case 0xe3:
+					case 0xe0:
+					case 0xa0:
+						break;
+					default:
+						Serial.print(srcaddr);
+						Serial.print(" ");
+						Serial.print(destaddr);
+						Serial.print(" ");
+						Serial.print(PGN);
+						Serial.print(" ");
+					print_hex(frame.get_data()->bytes, frame.get_length());
+					}
 					//pass all other messages through
 				}
 
@@ -474,12 +560,30 @@ void got_frame(CANFrame &frame, int which) {
 
 			if (autosteer_source != 3) send = true;
 			break;
+
+		//case 60926:
+		//	if (autosteer_source != 3) send = true;
+
+		case 61456:
+		case 61184:
+			//Serial.print("Blocking ");
+			//Serial.println(PGN);
+			send =  false; //block
+			break;
 		default:
 			send = true; //pass everything else on
+			Serial.print(srcaddr);
+			Serial.print(" ");
+			Serial.print(destaddr);
+			Serial.print(" ");
+			Serial.print(PGN);
+			Serial.print(" ");
+			Serial.print(frame.get_id());
+			Serial.print(" ");
+			print_hex(frame.get_data()->bytes, frame.get_length());
 		}
 	}
 
-	//transmit frames if we're not collecting them
 	if (!send) return;
 	
 	if (which == 0) {
@@ -644,6 +748,9 @@ void loop()
 	char c;
 	
 	unsigned long last_time = millis();
+	unsigned long last_61184 = millis();
+	unsigned long last_60928 = millis();
+	unsigned long t;
 
 	CANFrame msg; //for generating gps messages
 	msg.set_extended(true);
@@ -652,10 +759,12 @@ void loop()
 	while(1) {
 		//perhaps check to see how long since we had our last external GPS reading.
 		//if it's been a certain amount of time, revert to the tractor receiver
-		if (autosteer_source == 3 && millis() - autosteer_lastext > EXT_GPS_TIMEOUT) {
-			autosteer_source = 0;
+
+		t = millis();
+		if ((t - autosteer_lastext) > EXT_GPS_TIMEOUT) {
+			if (autosteer_source == 3) autosteer_source = 0;
 			if (gps_mode == ON_ROOF) {
-				autosteer_lastext = millis();
+				autosteer_lastext = t;
 				//emit null position messages to keep system happy
 				msg.set_id(j1939_encode(65267, 3, 28, 255));
 				msg.get_data()->uint64 = 0xffffffffffffffff; //unknown GPS position
@@ -682,6 +791,10 @@ void loop()
 				send_message(msg);
 
 				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0xffffffffffc000a0;
+				send_message(msg);
+
+				msg.set_id(j1939_encode(65535,3,28,255));
 				msg.get_data()->uint64 = 0x3757b2801e000054; //no GPS
 				send_message(msg);
 
@@ -696,6 +809,32 @@ void loop()
 				msg.set_id(j1939_encode(65535,3,28,255));
 				msg.get_data()->uint64 = 0xfffffffff00000e0; //unintialized TCM
 				send_message(msg);
+
+				if ( (t - last_61184) >= 1000) {
+					last_61184 = t;
+					msg.set_id(j1939_encode(61184,5,28,128));
+					msg.get_data()->uint64 = 0x0000000000c3003f;
+					msg.set_length(3);
+					send_message(msg);
+
+					msg.set_id(j1939_encode(61184,5,28,128));
+					msg.get_data()->uint64 = 0xff05f100ef0000f1;
+					send_message(msg);
+
+					msg.set_id(j1939_encode(61184,5,28,128));
+					msg.get_data()->uint64 = 0x00000000003b003f;
+					msg.set_length(3);
+					send_message(msg);
+
+					msg.set_length(8);
+
+					// what is this pgn? version #?
+					msg.set_id(j1939_encode(60928, 6, 28, 255));
+					msg.get_data()->uint64 = 0x800017000421e240;
+					//msg.get_data()->uint64 = 0x8000170004333020;
+					send_message(msg);
+
+				}
 			}
 		}
 
@@ -763,7 +902,7 @@ void loop()
 				case 3:
 					Serial.println("Steer with ext GPS ");
 					break;
-				}
+			}
 				Serial.print(autosteer_lat,7);
 				Serial.print(" ");
 				Serial.println(autosteer_lon,7);
@@ -864,6 +1003,10 @@ void loop()
 					msg.get_data()->bytes[3] = 0x66;
 				send_message(msg);
 
+				msg.set_id(j1939_encode(65535,3,28,255));
+				msg.get_data()->uint64 = 0xffffffffffc000a0;
+				send_message(msg);
+
 				// required to show the signal quality bargraph
 				msg.set_id(j1939_encode(65535,3,28,255));
 				msg.get_data()->uint64 = 0x033020b90a000054;
@@ -891,37 +1034,45 @@ void loop()
 				send_message(msg);
 
 
-				/*
 				if (gps_mode == ON_ROOF) {
-					msg.set_id(j1939_encode(61184,5,28,128));
-					msg.get_data()->uint64 = 0xff05f100ef0000f1;
-					msg.set_length(8);
-					send_message(msg);
+					if ((millis() - last_61184) >= 1000) {
+						last_61184 = millis();
 
-					msg.set_id(j1939_encode(61184,5,28,128));
-					msg.get_data()->uint64 = 0x00000000003b003f;
-					msg.set_length(3);
-					send_message(msg);
+						msg.set_id(j1939_encode(61184,5,28,128));
+						msg.get_data()->uint64 = 0x0000000000c3003f;
+						msg.set_length(3);
+						send_message(msg);
 
-					msg.set_id(j1939_encode(61184,5,28,128));
-					msg.get_data()->uint64 = 0x0000000000c3003f;
-					msg.set_length(3);
-					send_message(msg);
+						msg.set_id(j1939_encode(61184,5,28,128));
+						msg.get_data()->uint64 = 0xff05f100ef0000f1;
+						msg.set_length(8);
+						send_message(msg);
 
-					msg.set_length(8);
-					//TODO: synthesis 51, 52, 53, 0xe1 proprietary messages
-					//65535 first byte 54
-					
-					//not sure about this one!
-					//Not required on brown box
-					//msg.set_id(j1939_encode(65535,3,28,255));
-					//msg.get_data()->uint64 = 0xffffffffffc000a0;
-					//send_message(msg);
+						msg.set_id(j1939_encode(61184,5,28,128));
+						msg.get_data()->uint64 = 0x00000000003b003f;
+						msg.set_length(3);
+						send_message(msg);
 
-					//TODO: once per second there's a 61456 pgn message. 
-					//seems to be a counter of some kind
+						msg.set_length(8);
+
+						// what is this pgn? serial number of GPS
+						// what frequency? 
+						msg.set_id(j1939_encode(60928, 6, 28, 255));
+						msg.get_data()->uint64 = 0x800017000421e240;
+						//msg.get_data()->uint64 = 0x8000170004333020;
+						send_message(msg);
+
+
+						//TODO: synthesis 51, 52, 53, 0xe1 proprietary messages
+						//65535 first byte 54
+						
+						//not sure about this one!
+						//Not required on brown box
+						//msg.set_id(j1939_encode(65535,3,28,255));
+						//msg.get_data()->uint64 = 0xffffffffffc000a0;
+						//send_message(msg);
+					}
 				}
-				*/
 			}
 #endif
 		}
