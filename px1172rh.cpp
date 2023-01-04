@@ -3,6 +3,7 @@
 #include "haversine.h"
 #include "kfilter1.h"
 #include "SimpleKalmanFilter.h"
+#include "math.h"
 	
 extern double antenna_forward;
 extern double antenna_height;
@@ -31,6 +32,7 @@ double altitude=0;
 double heading=0;
 double heading90=0;
 double roll=0;
+uint8_t fix30_mode;
 bool got_pos=false;
 bool got_attitude=false;
 
@@ -83,6 +85,7 @@ bool psti_process(char c) {
 			latitude = sti.getLatitude() / 10000000.0;
 			longitude = sti.getLongitude() / 10000000.0;
 			altitude = sti.getAltitude() / 1000.0;
+			fix30_mode = sti.getMode();
 		}
 
 		if (sti.getType() == 36) {
@@ -131,6 +134,15 @@ bool psti_process(char c) {
 			//filter roll
 			//roll = roll_filter.filter(roll);
 		}
+
+		long north_speed = sti.getNorthVelocity();
+		long east_speed = sti.getEastVelocity();
+
+		//slow but faster than parsing GGA
+		double speed = sqrt(north_speed * north_speed + east_speed * east_speed);
+		autosteer_speed = speed * 3.6 / 1000.0; //convert to km/h
+
+
 		if (got_pos && got_attitude) {
 			double tilt_offset;
 			double alt_offset1;
@@ -155,53 +167,83 @@ bool psti_process(char c) {
 			autosteer_orig_lat = latitude;
 			autosteer_orig_lon = longitude;
 			autosteer_orig_altitude = altitude; 
+			//unless both receives have RTK or Float, we can't really do TCM
+			//so this will only return R or F if STI,036 shows R or F.
+			autosteer_mode = sti.getMode();
 
-			heading_delta = heading - last_heading;
-			if (heading_delta > 180) heading_delta -= 360; //yawing to the left across 0
-			else if (heading_delta <= -180) heading_delta += 360; //yawing to right across 0
-			last_heading = heading;
+			if (fix30_mode != 'N' && sti.getMode() != 'R' && sti.getMode() != 'F') {
+				//low-quality GPS fix, no STI,036 information
+				//calculate approximate heading from STI,030 velocity vectors
+				//assume a roll of zero (no terrain compensation)
+				//translate the GPS position to the center only
+				//not really sure why I am doing this since you can't steer
+				//with this level of GPS. Mapping maybe?
 
-			yaw_rate = heading_delta / 0.2;  //degrees/second
-			//yaw_rate = yawrate_filter.filter(yaw_rate);
-			autosteer_yawrate = yaw_rate;
+				heading = atan2(-east_speed, north_speed) * 180.0 / PI;
+				if (heading <0) heading += 360;
 
-			//offset from the tilt of the tractor
-			tilt_offset = sin(roll * haversine::toRadians) * antenna_height;
+				autosteer_heading = heading;
+				autosteer_roll = 0;
 
-			//account for distance from right antenna to center of tractor
-			center_offset = cos(roll * haversine::toRadians) * antenna_right;
+				heading_delta = heading - last_heading;
+				if (heading_delta > 180) heading_delta -= 360; //yawing to the left across 0
+				else if (heading_delta <= -180) heading_delta += 360; //yawing to right across 0
+				last_heading = heading;
 
-			//calculate ground-level elevation in center of tractor,
-			//relative to right antenna
-			alt_offset1 = cos(roll * haversine::toRadians) * antenna_height;
-			alt_offset2 = sin(roll * haversine::toRadians) * center_offset;
+				yaw_rate = heading_delta / 0.2;  //degrees/second
+				//yaw_rate = yawrate_filter.filter(yaw_rate);
+				autosteer_yawrate = yaw_rate;
 
-			haversine::move_distance_bearing(latitude, longitude, (double)heading90,
-											 tilt_offset + center_offset);
+				//account for distance from right antenna to center of tractor
+				center_offset = cos(roll * haversine::toRadians) * antenna_right;
+				haversine::move_distance_bearing(latitude, longitude, (double)heading90,
+				                                 center_offset);
 
-			altitude -= alt_offset1 - alt_offset2; //TODO: check me
-			autosteer_altitude = altitude;
+				autosteer_altitude = altitude - antenna_height;
+				autosteer_lat = latitude;
+				autosteer_lon = longitude;
 
-			if (antenna_forward) {
-				//if gps is forward of axle, translate the position rearward
-				haversine::move_distance_bearing(latitude, longitude, (double)heading, 
-												 -antenna_forward);
-			}
+				return true;
 
-			if (sti.getMode() == 'R' || sti.getMode() == 'F') {
-				autosteer_mode = sti.getMode();
+			} else if (sti.getMode() == 'R' || sti.getMode() == 'F') {
+				//if RTK, do terrain compensation
+				heading_delta = heading - last_heading;
+				if (heading_delta > 180) heading_delta -= 360; //yawing to the left across 0
+				else if (heading_delta <= -180) heading_delta += 360; //yawing to right across 0
+				last_heading = heading;
+
+				yaw_rate = heading_delta / 0.2;  //degrees/second
+				//yaw_rate = yawrate_filter.filter(yaw_rate);
+				autosteer_yawrate = yaw_rate;
+
+				//offset from the tilt of the tractor
+				tilt_offset = sin(roll * haversine::toRadians) * antenna_height;
+
+				//account for distance from right antenna to center of tractor
+				center_offset = cos(roll * haversine::toRadians) * antenna_right;
+
+				//calculate ground-level elevation in center of tractor,
+				//relative to right antenna
+				alt_offset1 = cos(roll * haversine::toRadians) * antenna_height;
+				alt_offset2 = sin(roll * haversine::toRadians) * center_offset;
+
+				haversine::move_distance_bearing(latitude, longitude, (double)heading90,
+				                                 tilt_offset + center_offset);
+
+				altitude -= alt_offset1 - alt_offset2; //TODO: check me
+				autosteer_altitude = altitude;
+
+				if (antenna_forward) {
+					//if gps is forward of axle, translate the position rearward
+					haversine::move_distance_bearing(latitude, longitude, (double)heading,
+					                                 -antenna_forward);
+				}
+
 				autosteer_lat = latitude;
 				autosteer_lon = longitude;
 				autosteer_roll = roll;
 				autosteer_heading = heading;
 				
-				long north_speed = sti.getNorthVelocity();
-				long east_speed = sti.getEastVelocity();
-
-				//slow but faster than parsing GGA
-				double speed = sqrt(north_speed * north_speed + east_speed * east_speed);
-				autosteer_speed = speed * 3.6 / 1000.0; //convert to km/h
-
 				return true;
 			}
 		}
