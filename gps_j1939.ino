@@ -787,7 +787,8 @@ void loop()
 				send_message(msg);
 
 				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0x5441104000000053; //no GPS
+				msg.get_data()->uint64 = 0x5441104040640153; //no GPS
+				//msg.get_data()->uint64 = 0x5441104000000053; //no GPS
 				send_message(msg);
 
 				msg.set_id(j1939_encode(65535,3,28,255));
@@ -866,24 +867,31 @@ void loop()
 				switch (autosteer_source) {
 				case 0: //inadequate GPS
 					tft.setTextColor(ST77XX_RED,0xffff);
-					tft.println("Poor GPS; but steering    ");
+					if (gps_mode == ON_ROOF) {
+						tft.println("No GPS.                     ");
+					} else {
+						tft.println("No ext GPS, poor SF GPS     ");
+					}
 					break;
 				case 1: //WAAS or lower
 					tft.setTextColor(ST77XX_BLUE,0xffff);
-					tft.println("Steer with WAAS           ");
+					tft.println("Steer with SF WAAS         ");
 					break;
 				case 2: //SF1 or higher, internal
 					tft.setTextColor(ST77XX_BLACK,0xffff);
-					tft.println("Steer with SF1 or +        ");
+					tft.println("Steer with SF SF1          ");
 					break;
 
 				case 3:
 					if (autosteer_mode == 'R') {
 						tft.setTextColor(ST77XX_GREEN,0xffff);
 						tft.println("Steer with ext RTK            ");
-					} else {
+					} else if (autosteer_mode == 'F') {
 						tft.setTextColor(ST77XX_RED,0xffff);
 						tft.println("Steer with ext Float RTK      ");
+					} else {
+						tft.setTextColor(ST77XX_RED,0xffff);
+						tft.println("Poor GPS; no steer             ");
 					}
 					break;
 				}
@@ -902,7 +910,7 @@ void loop()
 				case 3:
 					Serial.println("Steer with ext GPS ");
 					break;
-			}
+				}
 				Serial.print(autosteer_lat,7);
 				Serial.print(" ");
 				Serial.println(autosteer_lon,7);
@@ -999,15 +1007,20 @@ void loop()
 
 				if (autosteer_mode == 'R')
 					msg.get_data()->bytes[3] = 0x7a;
-				else
+				else if (autosteer_mode == 'F')
 					msg.get_data()->bytes[3] = 0x66;
+				else
+					//if no RTK, show that we have GPS, but very poor quality
+					//cannot really steer.
+					msg.get_data()->bytes[3] = 0x40;
+
 				send_message(msg);
 
 				msg.set_id(j1939_encode(65535,3,28,255));
 				msg.get_data()->uint64 = 0xffffffffffc000a0;
 				send_message(msg);
 
-				// required to show the signal quality bargraph
+				//suspect HDOP, VDOP are in this message
 				msg.set_id(j1939_encode(65535,3,28,255));
 				msg.get_data()->uint64 = 0x033020b90a000054;
 				send_message(msg);
@@ -1062,15 +1075,6 @@ void loop()
 						//msg.get_data()->uint64 = 0x8000170004333020;
 						send_message(msg);
 
-
-						//TODO: synthesis 51, 52, 53, 0xe1 proprietary messages
-						//65535 first byte 54
-						
-						//not sure about this one!
-						//Not required on brown box
-						//msg.set_id(j1939_encode(65535,3,28,255));
-						//msg.get_data()->uint64 = 0xffffffffffc000a0;
-						//send_message(msg);
 					}
 				}
 			}
