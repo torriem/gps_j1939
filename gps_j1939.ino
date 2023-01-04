@@ -664,6 +664,7 @@ void setup()
 {
 	debug_messages = false;
 	Serial.begin(115200);
+	Serial3.begin(115200);
 	delay(2000);
 	Serial.println("gps_j1939");
 	autosteer_source = 0;
@@ -829,7 +830,8 @@ void loop()
 
 					msg.set_length(8);
 
-					// what is this pgn? version #?
+					// what is this pgn? serial number of GPS
+					// what frequency? 
 					msg.set_id(j1939_encode(60928, 6, 28, 255));
 					msg.get_data()->uint64 = 0x800017000421e240;
 					//msg.get_data()->uint64 = 0x8000170004333020;
@@ -925,11 +927,16 @@ void loop()
 			last_time = millis();
 		}
 
-		while(Serial.available()) {
-			c = Serial.read();
+		if (Serial3.available()) {
+			Serial.print(".");
+
+		}
+		while(Serial3.available()) {
+			c = Serial3.read();
 
 #ifdef EXTGPS_PX1172RH
 			if (psti_process(c)) {
+				/*
 				Serial.print(autosteer_lat,7);
 				Serial.print(",");
 				Serial.print(autosteer_lon,7);
@@ -949,7 +956,7 @@ void loop()
 				Serial.print(autosteer_orig_lon,7);
 				Serial.print(",");
 				Serial.println(autosteer_orig_altitude);
-
+				*/
 
 				autosteer_lastext = millis();
 				autosteer_source = 3; //tell CAN proxy we're injecting GPS positions now
