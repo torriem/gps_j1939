@@ -1,9 +1,6 @@
 /*
-    This program is intended to run on either a Teensy 4.x or an 
-    Arduino Due.  Possibly can be made to run on any microcontroller
-    that has two CAN interfaces and is reasonably fast, at least 100 
-    Mhz.  Teensy version can optionally use a TFT screen for a readout
-    and debugging.
+    This program is intended to run on either a Teensy 4.x.
+    Can optionally use a TFT screen for a readout and debugging.
 
     This program does two things.  First it can enable steering with
     autotrac using only WAAS.  It does this by changing a CAN message
@@ -31,6 +28,10 @@
 #include "canframe.h" //also defines TEENSY
 #include "whichteensy.h"
 
+#ifndef TEENSY
+#  error This sketch requires a Teensy 4.x microcontroller
+#endif
+
 //Plan to support different kinds of external GPS using modules
 #define EXTGPS_PX1172RH 1 
 
@@ -38,37 +39,27 @@
 #  include "px1172rh.h"
 #endif 
 
-#ifdef TEENSY
-#  include <FlexCAN_T4.h>
-#  define TEENSY_TFT //comment out if don't want any screen.
+#include <FlexCAN_T4.h>
+#define TEENSY_TFT //comment out if don't want any screen.
 
-#  ifdef TEENSY_TFT
-#    include <SD.h>
-#    include <SPI.h>
-#    include <ST7735_t3.h> // Hardware-specific library
-#    include <ST7789_t3.h> // Hardware-specific library
-#    include <st7735_t3_font_Arial.h>
-#    include "ST7735_t3_font_ArialBold.h"
-#    include "font_LiberationMono.h"
-#    define TFT_RST    9   // chip reset
-#    define TFT_DC     8   // tells the display if you're sending data (D) or commands (C)   --> WR pin on TFT
-#    define TFT_MOSI   11  // Data out    (SPI standard)
-#    define TFT_SCLK   13  // Clock out   (SPI standard)
-#    define TFT_CS     10  // chip select (SPI standard)
-#    define SD_CS     7
-#    define rgb(R,G,B) (int)(R*31)*64*32 + (int)(G*63)*32 + (int)(B*31)
-#  endif
+#ifdef TEENSY_TFT
+#  include <SD.h>
+#  include <SPI.h>
+#  include <ST7735_t3.h> // Hardware-specific library
+#  include <ST7789_t3.h> // Hardware-specific library
+#  include <st7735_t3_font_Arial.h>
+#  include "ST7735_t3_font_ArialBold.h"
+#  include "font_LiberationMono.h"
+#  define TFT_RST    9   // chip reset
+#  define TFT_DC     8   // tells the display if you're sending data (D) or commands (C)   --> WR pin on TFT
+#  define TFT_MOSI   11  // Data out    (SPI standard)
+#  define TFT_SCLK   13  // Clock out   (SPI standard)
+#  define TFT_CS     10  // chip select (SPI standard)
+#  define SD_CS     7
+#  define rgb(R,G,B) (int)(R*31)*64*32 + (int)(G*63)*32 + (int)(B*31)
+#endif
 
 uint8_t serial_buffer[1024]; //overkill hopefully
-
-#else
-//#  include "variant.h" //PI among other things
-#  include <due_can.h>
-#  include <can_common.h>
-
-#  define Serial SerialUSB
-
-#endif
 
 #define RADIANS(deg) deg * M_PI / 180.0
 #define DEGREES(rad) rad * 180.0 / M_PI
@@ -124,10 +115,9 @@ uint16_t override_speed = 0;
 
 bool debug_messages=false;
 
-
-#ifdef TEENSY
 FlexCAN_T4<CAN1, RX_SIZE_1024, TX_SIZE_1024> Can0;
 FlexCAN_T4<CAN2, RX_SIZE_1024, TX_SIZE_1024> Can1;
+
 #ifdef TEENSY_TFT
 ST7789_t3 tft = ST7789_t3(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST);
 
@@ -193,8 +183,6 @@ int16_t tft_drawDouble(double floatNumber, int dp, int poX, int poY)
   // Finally we can plot the string and return pixel length
   return tft.drawString(str, poX, poY);
 }
-
-#endif
 #endif
 
 static inline void print_hex(uint8_t *data, int len) {
@@ -590,24 +578,13 @@ void got_frame(CANFrame &frame, int which) {
 	if (!send) return;
 	
 	if (which == 0) {
-#ifdef TEENSY
 		Can1.write(frame);
-		//Can1.events();
-#else
-		Can1.sendFrame(frame);
-#endif
 	} else {
 		//transmit it out Can0
-#ifdef TEENSY
 		Can0.write(frame);
-		//Can0.events();
-#else
-		Can0.sendFrame(frame);
-#endif
 	}
 }
 
-#ifdef TEENSY
 void teensy_got_frame(const CAN_message_t &orig_frame) {
 	CANFrame frame = orig_frame;
 
@@ -616,50 +593,21 @@ void teensy_got_frame(const CAN_message_t &orig_frame) {
 	got_frame(frame, orig_frame.bus - 1);
 }
 
-#else
-void can0_got_frame(CAN_FRAME *orig_frame) {
-	//Serial.print("0");
-	//CANFrame *wrapper = frame;
-	CANFrame frame = static_cast<CANFrame>(*orig_frame);
-	got_frame(frame, 0);
-}
-
-void can1_got_frame(CAN_FRAME *orig_frame) {
-	//Serial.print("<");
-	//CANFrame *wrapper = frame;
-	CANFrame frame = static_cast<CANFrame>(*orig_frame);
-	got_frame(frame, 1);
-}
-#endif
-
 void send_message(CANFrame &msg) {
 	if (monitor_can < 0 ) return; //we don't know where to send it
 
 	if (gps_mode == ON_ROOF || gps_mode == BETWEEN_MODIFY) {
 		//only send it to the monitor
 		if (monitor_can == 1 ) {
-#ifdef TEENSY					
 			Can1.write(msg);
-#else
-			Can1.sendFrame(msg);
-#endif
 		} else {
-#ifdef TEENSY					
 			Can0.write(msg);
-#else
-			Can0.sendFrame(msg);
-#endif
 		}
 	} else {
 		//send it both ways so everyone on the implement bus
 		//can see the GPS messages
-#ifdef TEENSY					
 		Can0.write(msg);
 		Can1.write(msg);
-#else
-		Can0.sendFrame(msg);
-		Can1.sendFrame(msg);
-#endif
 	}
 }
 
@@ -674,7 +622,6 @@ void setup()
 	autosteer_lon = 0;
 	override_speed = 0;
 
-#ifdef TEENSY
 	Serial3.addStorageForRead(serial_buffer,1024);
 	Serial3.begin(115200);
 
@@ -732,20 +679,6 @@ void setup()
 	}
 	*/
 #    endif //TEENSY_TFT
-
-#else
-	Can0.begin(CAN_BPS_250K);
-	Can1.begin(CAN_BPS_250K);
-
-	for (int filter=0;filter <3; filter ++) {
-		Can0.setRXFilter(0,0,true);
-		Can1.setRXFilter(0,0,true);
-	}
-
-	Can0.attachCANInterrupt(can0_got_frame);
-	Can1.attachCANInterrupt(can1_got_frame);
-	//Serial.println("Waiting for messages.");
-#endif
 }
 
 void loop()
