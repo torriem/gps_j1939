@@ -58,6 +58,9 @@
 #    define SD_CS     7
 #    define rgb(R,G,B) (int)(R*31)*64*32 + (int)(G*63)*32 + (int)(B*31)
 #  endif
+
+uint8_t serial_buffer[1024]; //overkill hopefully
+
 #else
 //#  include "variant.h" //PI among other things
 #  include <due_can.h>
@@ -664,7 +667,6 @@ void setup()
 {
 	debug_messages = false;
 	Serial.begin(115200);
-	Serial3.begin(115200);
 	delay(2000);
 	Serial.println("gps_j1939");
 	autosteer_source = 0;
@@ -673,6 +675,8 @@ void setup()
 	override_speed = 0;
 
 #ifdef TEENSY
+	Serial3.addStorageForRead(serial_buffer,1024);
+	Serial3.begin(115200);
 
 	//Teensy FlexCAN_T4 setup
 	Can0.begin();
