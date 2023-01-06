@@ -969,9 +969,10 @@ void loop()
 				msg.get_data()->uint64 = 0x033020b90a000054;
 				send_message(msg);
 	
-				Serial.print(autosteer_heading);
-				Serial.print(", ");
-				Serial.println(autosteer_yawrate);
+				//Serial.print(autosteer_heading);
+				//Serial.print(", ");
+				//Serial.println(autosteer_yawrate);
+
 				//PGN 65535, first byte 0xe1, priority 2, src 28, dest 255
 				//TCM pitch, roll, etc.
 				msg.set_id(j1939_encode(65535,3,28,255));
