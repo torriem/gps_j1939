@@ -51,7 +51,6 @@ KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
 bool psti_process(char c) {
 	if (sti.process(c)) {
 		if (sti.getType() == 30) {
-			uint8_t myear, mmonth, mday;
 			uint8_t mhour, mminute, mseconds, mhundredths;
 
 			//myear = sti.getYear();
@@ -89,7 +88,6 @@ bool psti_process(char c) {
 		}
 
 		if (sti.getType() == 36) {
-			uint8_t myear, mmonth, mday;
 			uint8_t mhour, mminute, mseconds, mhundredths;
 			year = sti.getYear();
 			month = sti.getMonth();
