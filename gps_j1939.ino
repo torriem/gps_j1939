@@ -24,24 +24,19 @@
     torriem@gmail.com
  */
 
-#include <math.h>
-#include "canframe.h" //also defines TEENSY
 #include "whichteensy.h"
-
 #ifndef TEENSY
 #  error This sketch requires a Teensy 4.x microcontroller
 #endif
 
-//Plan to support different kinds of external GPS using modules
-#define EXTGPS_PX1172RH 1 
-
-#ifdef EXTGPS_PX1172RH
-#  include "px1172rh.h"
-#endif 
-
+#include <math.h>
+#include "canframe.h" //also defines TEENSY
+#include "circle_generator.h"
+#include "static_position.h"
+#include "px1172rh.h"
 #include <FlexCAN_T4.h>
-#define TEENSY_TFT //comment out if don't want any screen.
 
+#define TEENSY_TFT //comment out if don't want any screen.
 #ifdef TEENSY_TFT
 #  include <SD.h>
 #  include <SPI.h>
@@ -66,20 +61,26 @@ uint8_t serial_buffer[1024]; //overkill hopefully
 #define INCHES 0.0254
 #define FEET 0.3048
 
-//modes depending on where plugged in
-#define ON_ROOF 1 //plugged into roof in place of receiver, or near monitor on aux plug
-#define BETWEEN_MODIFY 2 //plugged between existing receiver and monitor
-#define BETWEEN 3 //plugged between pillar and monitor, no existing receiver
+//types of GPS
+#define GPS_PX1172RH 1 //dual gps from px1172rh
+//#define GPS_DUAL_F9P //FUTURE: dual F9P support
+#define GPS_NMEA_BNO 3  //single GPS GGA+VTG and the BNO08x
+
+//types of virtual position generators
+#define VIRTUAL_NONE 0 //no virtual position generation
+#define VIRTUAL_CIRCLE 10 //simulate moving in a perfect circle
+#define VIRTUAL_STATIC 11 //arbitrary static position.
 
 double antenna_forward=0; //antenna this far ahead of axle
 double antenna_height=120 * INCHES; //inches above ground
 double antenna_right=26.5 * INCHES; //for double antenna, how far away the right-most antenna is from the from center
-#define EXT_GPS_TIMEOUT 400 //after 200ms of no external position, show invalid GPS position
-//uint8_t gps_mode=BETWEEN_MODIFY;
-uint8_t gps_mode=ON_ROOF;
+#define GPS_TIMEOUT 400 //after 200ms of no GPS position, show "No GPS" on monitor
+
+uint8_t gps_source = GPS_PX1172RH;
+uint8_t virtual_source = VIRTUAL_NONE;
+
 //int8_t monitor_can = -1;
 int8_t monitor_can = 0;
-
 
 //external GPS source variables
 double autosteer_lat=0;
@@ -98,6 +99,8 @@ int autosteer_source=0; //0 = inadequate, 1=WAAS, 2 = SF1 or higher, 3 = Externa
 long autosteer_lastext=0;
 char autosteer_mode='G';
 
+unsigned long last_61184 = millis();
+
 long can_messages_received = 0; // a sort of heartbeat on the CAN bus.
 uint8_t spinner_state = 0;
 
@@ -105,11 +108,6 @@ static const char *spinner="-\\|/";
 
 double tractor_lat = -400;
 double tractor_lon = -400;
-
-//Save some frames so we can modify them with injected information
-CANFrame vehicle_position_frame;
-CANFrame vehicle_dirspeed_frame;
-CANFrame tcm_roll_frame;
 
 uint16_t override_speed = 0;
 
@@ -246,336 +244,14 @@ long j1939_encode(unsigned long pgn, byte priority, byte src_addr, byte dest_add
  ****/
 
 void got_frame(CANFrame &frame, int which) {
+	/*
 	unsigned long PGN;
 	byte priority;
 	byte srcaddr;
 	byte destaddr;
 	bool send;
 
-
-	send = true;
-
 	j1939_decode(frame.get_id(), &PGN, &priority, &srcaddr, &destaddr);
-
-	if ((srcaddr != 28)) {
-		// seems to work fine with one-way traffic from 
-		// the GPS receiver
-		return;
-
-	}
-
-#if 0
-	/* look for specific frames that we're interested in */
-	if (srcaddr == 240) {
-		//this is coming from the monitor?
-		monitor_can = which;
-
-		return; //skip all messages
-
-		switch(PGN) {
-		case 65096: //vehicle wheel speed
-			if(override_speed) {
-				frame.get_data()->uint16[0] = override_speed;
-				//override_speed = 0; // turn it  off now? How to do this properly?
-			}
-			break;
-		}
-	}
-	if (srcaddr == 128) {
-		//this is coming from the monitor?
-		monitor_can = which;
-
-		switch(PGN) {
-		case 65535:
-			switch(frame.get_data()->bytes[0]){
-			case 0x31: //maybe speed in here
-				if (frame.get_data()->bytes[5] == 5) {
-					//Serial.println("blocking monitor 0x31........05 message");
-					//return;
-					/*
-					if (gps_mode == ON_ROOF) {
-						CANFrame msg; //for generating gps messages
-						msg.set_extended(true);
-						msg.set_length(8); //all our messages are going to be 8 bytes
-						msg.set_id(j1939_encode(65535,3,28,255));
-						msg.get_data()->uint64 = 0xffffffffffc000a0;
-						send_message(msg);
-						Serial.println("Answered monitor?");
-					}
-					*/
-				}
-			}
-			break;
-		case 61184:
-			if(frame.get_data()->uint64 == 0x000000010000011e) {
-				//interrogation of some kind.
-				//Serial.println("blocking 61184 from monitor.");
-				//return;
-
-				/*
-				if (gps_mode == ON_ROOF) {
-					Serial.println("request from monitor.");
-					CANFrame msg; //for generating gps messages
-					msg.set_extended(true);
-					msg.set_length(8); //all our messages are going to be 8 bytes
-					msg.set_id(j1939_encode(65535,3,28,255));
-					msg.get_data()->uint64 = 0xffffffffffc000a0;
-					send_message(msg);
-					Serial.println("Answered monitor?");
-				}
-				*/
-			}
-			break;
-
-		case 60928:
-			if (frame.get_data()->bytes[0] == 30) {
-				CANFrame msg; //for generating gps messages
-				msg.set_extended(true);
-				msg.set_length(7); //all our messages are going to be 8 bytes
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0x0080001700043330;
-				send_message(msg);
-				Serial.println("Answered monitor?");
-			}
-
-		}
-		Serial.print(srcaddr);
-		Serial.print(" ");
-		Serial.print(destaddr);
-		Serial.print(" ");
-		Serial.print(PGN);
-		Serial.print(" ");
-		print_hex(frame.get_data()->bytes, frame.get_length());
-	}
-#endif
-	if (gps_mode == ON_ROOF) return; //ignore all in-coming messages for now; we'll only be synthesizing gps.
-
-	if (srcaddr == 28) {
-		if (which == 0 ) monitor_can = 1; else monitor_can = 0;
-
-		if (autosteer_source == 3) return; //completely block GPS receiver
-		//receiver_from = which; //remember which CAN interface the GPS receiver is on
-		send=false;
-
-		switch(PGN) {
-		case 65535:
-			switch(frame.get_data()->bytes[0]) {
-			case 0x53: // GPS accuracy level and steering flag
-				send=true;
-				if (autosteer_source == 3) {
-					send = false; //synthesized below.
-					//external GPS, RTK presumably
-
-					//we could try setting to 0x70 and 0x7a
-					//frame.get_data()->bytes[4] = 0x40; //steering toggle should always be on
-					//frame.get_data()->bytes[3] = 0x7a; //RTK, accuracy 10
-				} else {
-					uint8_t signal_type;
-
-					//ensure steering works when sf1 isn't present
-					frame.get_data()->bytes[4] = 0x40; //steering toggle should always be on
-					signal_type = frame.get_data()->bytes[3] >> 4;
-
-					if (signal_type < 4) {
-						if (signal_type > 1) {
-							if(debug_messages) {
-								Serial.println("Steer with differential signal.");
-							}
-							autosteer_source = 1;
-
-							//accuracy of 3 is minimum for steering.
-							//0x10 = Diff 0x20 = JDDiff, 0x30 = WAAS, 0x40 = sf1
-							//frame->data.bytes[3] = 0x55; //0x5x=sf2
-							//frame->data.bytes[3] = 0x75; //0x6x=rtk-x, 0x7x=rtk
-
-							frame.get_data()->bytes[3] = 0x46; //SF1, accuracy 6
-						} else {
-							//no WAAS.  Performance is unlikely to be acceptable.
-							autosteer_source = 0;
-							if(debug_messages) {
-								Serial.println("Steer with 3D+ signal.");
-							}
-							frame.get_data()->bytes[3] = 0x42; //SF1, accuracy 2
-						}
-
-					} else {
-						autosteer_source = 2;
-					}
-				}
-
-				//Serial.println("got 0x53");
-				break;
-			case 0xe1: //TCM information
-				float roll, yawrate;
-				roll = frame.get_data()->uint16[1] / 128.0 - 200.0;
-				yawrate = frame.get_data()->uint16[2] / 128.0 - 200.0;
-
-				if (autosteer_source == 3) {
-					//frame.get_data()->uint16[1] = (autosteer_roll + 200) * 128.0;
-					//frame.get_data()->uint16[2] = (autosteer_yawrate + 200) * 128.0;
-					//frame.get_data()->uint16[3] = 200 * 128; //probably vehicle pitch on a 3000.
-					//send=true;
-				}
-				if (autosteer_source != 3) {
-					//if not using external GPS, pass this through
-					send=true;
-					autosteer_roll = frame.get_data()->uint16[1] / 128.0 - 200.0;
-					autosteer_yawrate = frame.get_data()->uint16[2] / 128.0 - 200.0;
-				}
-				//Serial.println("got 0xe1");
-				break;
-			default:
-				if (autosteer_source == 3) {
-					char firstbyte = frame.get_data()->bytes[0];
-					switch(firstbyte) {
-					case 0x51:
-					case 0x52:
-					case 0x53:
-					case 0x54:
-					case 0xe3:
-					case 0xe0:
-						//these frames we'll synthesize
-						send = false;
-						break;
-					default:
-						send = true;
-					}
-				} else {
-					send = true;
-					char firstbyte = frame.get_data()->bytes[0];
-					switch(firstbyte) {
-					case 0x51:
-					case 0x52:
-					case 0x53:
-					case 0x54:
-					case 0xe3:
-					case 0xe0:
-					case 0xa0:
-						break;
-					default:
-						Serial.print(srcaddr);
-						Serial.print(" ");
-						Serial.print(destaddr);
-						Serial.print(" ");
-						Serial.print(PGN);
-						Serial.print(" ");
-					print_hex(frame.get_data()->bytes, frame.get_length());
-					}
-					//pass all other messages through
-				}
-
-				/*
-				if(destaddr == 255) {
-					char firstbyte = frame.get_data()->bytes[0];
-					switch(firstbyte) {
-						case 0x51:
-						case 0x52:
-							//only 0x51, 0x52, 0x53, and 0xe1 are
-							//necessary to steer. Ignore all others.
-							send=true;
-							break;
-					}
-
-				}
-				*/
-				break;
-			}
-
-			/*
-			//dump out required messages for analysis.
-			switch(frame.get_data()->bytes[0]) {
-			case 0x51:
-			case 0x52:
-			case 0x53:
-			case 0x54:
-			case 0xe1:
-				debug_messages=true;
-				Serial.print(millis());
-				Serial.print(" ");
-				Serial.print(PGN);
-				Serial.print(" ");
-				print_hex(frame.get_data()->bytes, frame.get_length());
-				debug_messages=false;
-			} 
-			*/
-			break;
-
-		case 65267:
-			if (autosteer_source == 3) {
-				//frame.get_data()->uint32[0] = (autosteer_lat + 210.0) * 10000000;
-				//frame.get_data()->uint32[1] = (autosteer_lon + 210.0) * 10000000;
-				send = false;
-			}
-			if (autosteer_source !=3) {
-				//if not using external GPS, pass through
-				send=true;
-				can_messages_received ++; //heartbeat
-				// vehicle position
-				// latitude is uint32[0] / 10000000.0 - 210 for degres
-				// longitude is uint32[0] / 10000000.0 - 210 for degrees
-				//update the display
-				autosteer_lat = frame.get_data()->uint32[0] / 10000000.0 - 210.0;
-				autosteer_lon = frame.get_data()->uint32[1] / 10000000.0 - 210.0;
-			}
-			//Serial.println("got 65267");
-			break;
-			
-		case 65256:
-			/*
-			if (autosteer_source == 3) {
-				frame.get_data()->uint16[0] = autosteer_heading * 128;
-				frame.get_data()->uint16[1] = autosteer_speed * 256;
-				frame.get_data()->uint16[2] = 200 * 128; //not sure how critical vehicle pitch is
-				frame.get_data()->uint16[3] = (autosteer_altitude + 2500) * 8;
-				send = true;
-			}
-			*/
-			if (autosteer_source != 3) {
-				send=true;
-				// vehicle direction and speed
-				// heading is uint16[0] / 128.0
-				// speed is uint16[1] / 256.0 for km/h
-				// pitch is uint16[2] / 128.0 - 200.0 for angle, pos is climbing, neg is sinking
-				// altitude is uint16[3] / 0.125 - 2500 for metres.
-
-				// vehicle heading
-				autosteer_heading = frame.get_data()->uint16[0] / 128.0;
-			}
-			
-			//Serial.println("got 65256");
-			break;
-
-		case 65254:
-			//Date and time
-			//send = true;
-
-			if (autosteer_source != 3) send = true;
-			break;
-
-		//case 60926:
-		//	if (autosteer_source != 3) send = true;
-
-		case 61456:
-		case 61184:
-			//Serial.print("Blocking ");
-			//Serial.println(PGN);
-			send =  false; //block
-			break;
-		default:
-			send = true; //pass everything else on
-			Serial.print(srcaddr);
-			Serial.print(" ");
-			Serial.print(destaddr);
-			Serial.print(" ");
-			Serial.print(PGN);
-			Serial.print(" ");
-			Serial.print(frame.get_id());
-			Serial.print(" ");
-			print_hex(frame.get_data()->bytes, frame.get_length());
-		}
-	}
-
-	if (!send) return;
 	
 	if (which == 0) {
 		Can1.write(frame);
@@ -583,6 +259,7 @@ void got_frame(CANFrame &frame, int which) {
 		//transmit it out Can0
 		Can0.write(frame);
 	}
+	*/
 }
 
 void teensy_got_frame(const CAN_message_t &orig_frame) {
@@ -596,18 +273,217 @@ void teensy_got_frame(const CAN_message_t &orig_frame) {
 void send_message(CANFrame &msg) {
 	if (monitor_can < 0 ) return; //we don't know where to send it
 
-	if (gps_mode == ON_ROOF || gps_mode == BETWEEN_MODIFY) {
-		//only send it to the monitor
-		if (monitor_can == 1 ) {
-			Can1.write(msg);
-		} else {
-			Can0.write(msg);
-		}
-	} else {
-		//send it both ways so everyone on the implement bus
-		//can see the GPS messages
-		Can0.write(msg);
+	//only send it to the monitor
+	if (monitor_can == 1 ) {
 		Can1.write(msg);
+	} else {
+		Can0.write(msg);
+	}
+}
+
+void send_nogps_messages(unsigned long t){
+	CANFrame msg; //for generating gps messages
+	msg.set_extended(true);
+	msg.set_length(8); //all our messages are going to be 8 bytes
+
+	//emit null position messages to keep system happy
+	msg.set_id(j1939_encode(65267, 3, 28, 255));
+	msg.get_data()->uint64 = 0xffffffffffffffff; //unknown GPS position
+	send_message(msg);
+
+	msg.set_id(j1939_encode(65254,3,28,255));
+	msg.get_data()->uint64 = 0xffff3ffd00000000; // unknown TIME
+	send_message(msg);
+
+	msg.set_id(j1939_encode(65256,3,28,255));
+	msg.get_data()->uint64 = 0xffff6400ffffffff; // unknown attitude
+	send_message(msg);
+
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0x0000000000000151; // no GPS
+	send_message(msg);
+
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0xffffff0000000052; //no GPS
+	send_message(msg);
+
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0x5441104040640153; //no GPS
+	//msg.get_data()->uint64 = 0x5441104000000053; //no GPS
+	send_message(msg);
+
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0xffffffffffc000a0;
+	send_message(msg);
+
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0x3757b2801e000054; //no GPS
+	send_message(msg);
+
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0xfb0000fc00ffffe3; //unintialized TCM
+	send_message(msg);
+
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0x00ffffffffffe0e1; // unintialized TCM
+	send_message(msg);
+
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0xfffffffff00000e0; //unintialized TCM
+	send_message(msg);
+
+	if ( (t - last_61184) >= 1000) {
+		last_61184 = t;
+		msg.set_id(j1939_encode(61184,5,28,128));
+		msg.get_data()->uint64 = 0x0000000000c3003f;
+		msg.set_length(3);
+		send_message(msg);
+
+		msg.set_id(j1939_encode(61184,5,28,128));
+		msg.get_data()->uint64 = 0xff05f100ef0000f1;
+		send_message(msg);
+
+		msg.set_id(j1939_encode(61184,5,28,128));
+		msg.get_data()->uint64 = 0x00000000003b003f;
+		msg.set_length(3);
+		send_message(msg);
+
+		msg.set_length(8);
+
+		// what is this pgn? serial number of GPS
+		// what frequency? 
+		msg.set_id(j1939_encode(60928, 6, 28, 255));
+		msg.get_data()->uint64 = 0x800017000421e240;
+		//msg.get_data()->uint64 = 0x8000170004333020;
+		send_message(msg);
+	}
+
+}
+
+void send_gps_messages() {
+	CANFrame msg; //for generating gps messages
+	msg.set_extended(true);
+	msg.set_length(8); //all our messages are going to be 8 bytes
+
+	//gps position
+	//create pgn 65267, priority 3, source 28, dest 2555
+	msg.set_id(j1939_encode(65267, 3, 28, 255));
+	msg.get_data()->uint32[0] = (autosteer_lat + 210.0) * 10000000;
+	msg.get_data()->uint32[1] = (autosteer_lon + 210.0) * 10000000;
+	send_message(msg);
+
+	//PGN 65254, priority 3, src 28, dest 255
+	//date and time
+	msg.set_id(j1939_encode(65254,3,28,255));
+	msg.get_data()->uint64 = autosteer_datetime;
+	send_message(msg);
+
+	// vehicle direction and speed
+	// heading is uint16[0] / 128.0
+	// speed is uint16[1] / 256.0 for km/h
+	// pitch is uint16[2] / 128.0 - 200.0 for angle, pos is climbing, neg is sinking
+	// altitude is uint16[3] / 0.125 - 2500 for metres.
+	//vehicle direction and speed
+	//pgn 65256, priority 3, src 28, dest 255
+	msg.set_id(j1939_encode(65256,3,28,255));
+	msg.get_data()->uint16[0] = autosteer_heading * 128;
+	msg.get_data()->uint16[1] = autosteer_speed * 256;
+	msg.get_data()->uint16[2] = 200 * 128; //not sure how critical vehicle pitch is
+	msg.get_data()->uint16[3] = (autosteer_altitude + 2500) * 8;
+	send_message(msg);
+
+	//PGN 65535, first byte 51, priority 3, src 28, dest 255
+	//GPS Status message
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0xff191987ff020351;
+	send_message(msg);
+
+	//PGN 65535, first byte 52, priority 3, src 28, dest 255
+	//GPS satellites used message
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0x1fd47d4260a10552; //little endian
+	send_message(msg);
+
+	//PGN 65535, first byte 53, priority 6, src 28, dest 255
+	//Differential receiver status
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0x544110404a640153; //little endian
+
+	if (autosteer_mode == 'R')
+		msg.get_data()->bytes[3] = 0x7a;
+	else if (autosteer_mode == 'F')
+		msg.get_data()->bytes[3] = 0x66;
+	else {
+
+		//if no RTK, show that we have GPS, but very poor quality
+		//cannot really steer.
+		msg.get_data()->bytes[3] = 0x40;
+	}
+
+	send_message(msg);
+
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0xffffffffffc000a0;
+	send_message(msg);
+
+	//suspect HDOP, VDOP are in this message
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0x033020b90a000054;
+	send_message(msg);
+
+	//Serial.print(autosteer_heading);
+	//Serial.print(", ");
+	//Serial.println(autosteer_yawrate);
+
+	//PGN 65535, first byte 0xe1, priority 2, src 28, dest 255
+	//TCM pitch, roll, etc.
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint16[0] = 0xdfe1;
+	msg.get_data()->uint16[1] = (autosteer_roll + 200) * 128.0;
+	msg.get_data()->uint16[2] = (autosteer_yawrate + 200) * 128.0;
+	//msg.get_data()->uint16[3] = 200 * 128; //probably vehicle pitch on a 3000.
+	msg.get_data()->uint16[3] = 0xfa00;
+	send_message(msg);
+
+	//not sure about this one! TCM message
+	msg.set_id(j1939_encode(65535,3,28,255));
+	msg.get_data()->uint64 = 0xf1ff1dfcffffffe3;
+	send_message(msg);
+
+	//TCM message.... investigate
+	msg.set_id(j1939_encode(65535,6,28,255));
+	msg.get_data()->uint64 = 0xffffff11fc08fde0; //should be once a second.
+	//msg.get_data()->uint64 = 0xfffffffff00000e0; //from sf3000
+	send_message(msg);
+
+
+	if ((millis() - last_61184) >= 1000) {
+		last_61184 = millis();
+
+		msg.set_id(j1939_encode(61184,5,28,128));
+		msg.get_data()->uint64 = 0x0000000000c3003f;
+		msg.set_length(3);
+		send_message(msg);
+
+		msg.set_id(j1939_encode(61184,5,28,128));
+		msg.get_data()->uint64 = 0xff05f100ef0000f1;
+		msg.set_length(8);
+		send_message(msg);
+
+		msg.set_id(j1939_encode(61184,5,28,128));
+		msg.get_data()->uint64 = 0x00000000003b003f;
+		msg.set_length(3);
+		send_message(msg);
+
+		msg.set_length(8);
+
+		// what is this pgn? serial number of GPS
+		// what frequency? 
+		msg.set_id(j1939_encode(60928, 6, 28, 255));
+		msg.get_data()->uint64 = 0x800017000421e240;
+		//msg.get_data()->uint64 = 0x8000170004333020;
+		send_message(msg);
+
 	}
 }
 
@@ -622,7 +498,7 @@ void setup()
 	autosteer_lon = 0;
 	override_speed = 0;
 
-	Serial3.addStorageForRead(serial_buffer,1024);
+	Serial3.addMemoryForRead(serial_buffer,1024);
 	Serial3.begin(115200);
 
 	//Teensy FlexCAN_T4 setup
@@ -686,99 +562,33 @@ void loop()
 	char c;
 	
 	unsigned long last_time = millis();
-	unsigned long last_61184 = millis();
-	unsigned long last_60928 = millis();
 	unsigned long t;
 
-	CANFrame msg; //for generating gps messages
-	msg.set_extended(true);
-	msg.set_length(8); //all our messages are going to be 8 bytes
+	// virtual position generators
+	CircleGenerator circlegen;
+        StaticPosition staticpos;
+
+	//example of setup
+	//circlegen.set_circle(latitude, longitude, diameter, altitude);
+        //circlegen.start(millis(), 120, 22); //22 kph for 120 seconds
+	//virtual_source = VIRTUAL_CIRCLE;
+
+	//staticpos.set_position(latitude, longitude, altitude, heading);
+        //staticpos.start(millis(), 120); //static position for 2 minutes
+	//virtual_source = VIRTUAL_STATIC;
 
 	while(1) {
 		//perhaps check to see how long since we had our last external GPS reading.
 		//if it's been a certain amount of time, revert to the tractor receiver
 
 		t = millis();
-		if ((t - autosteer_lastext) > EXT_GPS_TIMEOUT) {
+		if ((t - autosteer_lastext) > GPS_TIMEOUT) {
 			if (autosteer_source == 3) autosteer_source = 0;
-			if (gps_mode == ON_ROOF) {
-				autosteer_lastext = t;
-				//emit null position messages to keep system happy
-				msg.set_id(j1939_encode(65267, 3, 28, 255));
-				msg.get_data()->uint64 = 0xffffffffffffffff; //unknown GPS position
-				send_message(msg);
-
-				msg.set_id(j1939_encode(65254,3,28,255));
-				msg.get_data()->uint64 = 0xffff3ffd00000000; // unknown TIME
-				send_message(msg);
-
-				msg.set_id(j1939_encode(65256,3,28,255));
-				msg.get_data()->uint64 = 0xffff6400ffffffff; // unknown attitude
-				send_message(msg);
-	
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0x0000000000000151; // no GPS
-				send_message(msg);
-
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0xffffff0000000052; //no GPS
-				send_message(msg);
-
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0x5441104040640153; //no GPS
-				//msg.get_data()->uint64 = 0x5441104000000053; //no GPS
-				send_message(msg);
-
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0xffffffffffc000a0;
-				send_message(msg);
-
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0x3757b2801e000054; //no GPS
-				send_message(msg);
-
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0xfb0000fc00ffffe3; //unintialized TCM
-				send_message(msg);
-
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0x00ffffffffffe0e1; // unintialized TCM
-				send_message(msg);
-
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0xfffffffff00000e0; //unintialized TCM
-				send_message(msg);
-
-				if ( (t - last_61184) >= 1000) {
-					last_61184 = t;
-					msg.set_id(j1939_encode(61184,5,28,128));
-					msg.get_data()->uint64 = 0x0000000000c3003f;
-					msg.set_length(3);
-					send_message(msg);
-
-					msg.set_id(j1939_encode(61184,5,28,128));
-					msg.get_data()->uint64 = 0xff05f100ef0000f1;
-					send_message(msg);
-
-					msg.set_id(j1939_encode(61184,5,28,128));
-					msg.get_data()->uint64 = 0x00000000003b003f;
-					msg.set_length(3);
-					send_message(msg);
-
-					msg.set_length(8);
-
-					// what is this pgn? serial number of GPS
-					// what frequency? 
-					msg.set_id(j1939_encode(60928, 6, 28, 255));
-					msg.get_data()->uint64 = 0x800017000421e240;
-					//msg.get_data()->uint64 = 0x8000170004333020;
-					send_message(msg);
-
-				}
-			}
+			autosteer_lastext = t;
+			send_nogps_messages(t);
 		}
 
-		if (millis() - last_time > 500) {
+		if (t - last_time > 500) {
 #ifdef TEENSY_TFT
 			tft.setTextColor(rgb(0,0,0), 0xffff);
 			tft.setFont(LiberationMono_20);
@@ -790,7 +600,6 @@ void loop()
 			spinner_state=(spinner_state+1) % 4;
 #endif
 
-			//Serial.println(millis());
 			if (autosteer_lat) {
 #ifdef TEENSY_TFT
 				tft.setTextColor(rgb(0,0,0), 0xffff);
@@ -806,11 +615,7 @@ void loop()
 				switch (autosteer_source) {
 				case 0: //inadequate GPS
 					tft.setTextColor(ST77XX_RED,0xffff);
-					if (gps_mode == ON_ROOF) {
-						tft.println("No GPS.                     ");
-					} else {
-						tft.println("No ext GPS, poor SF GPS     ");
-					}
+					tft.println("No GPS.                     ");
 					break;
 				case 1: //WAAS or lower
 					tft.setTextColor(ST77XX_BLUE,0xffff);
@@ -861,172 +666,52 @@ void loop()
 			}
 #endif
 
-			last_time = millis();
+			last_time = t;
 		}
 
-		//if (Serial3.available()) {
-		//	Serial.print(".");
+		switch(virtual_source) {
+		case VIRTUAL_CIRCLE:
+			if (circlegen.circle_position(t, 200)) {
+				autosteer_source = 3;
+				send_gps_messages();
+				autosteer_lastext = t;
+			}
+			if (circlegen.finished(t))
+				virtual_source = VIRTUAL_NONE;
+			break;
+		case VIRTUAL_STATIC:
+			if (staticpos.static_position(t, 200)) {
+				autosteer_source = 3;
+				send_gps_messages();
+				autosteer_lastext = t;
+			}
+			if (staticpos.finished(t))
+				virtual_source = VIRTUAL_NONE;
+			break;
+		}
 
-		//}
+		//now process serial bytes that have accumulated
 		while(Serial3.available()) {
 			c = Serial3.read();
 
-#ifdef EXTGPS_PX1172RH
-			if (psti_process(c)) {
-				/*
-				Serial.print(autosteer_lat,7);
-				Serial.print(",");
-				Serial.print(autosteer_lon,7);
-				Serial.print(", alt ");
-				Serial.print(autosteer_altitude);
-				Serial.print(", hdg ");
-				Serial.print(autosteer_heading);
-				Serial.print(", spd ");
-				Serial.print(autosteer_speed);
-				Serial.print(", rol ");
-				Serial.print(autosteer_roll);
-				Serial.print(", yr");
-				Serial.print(autosteer_yawrate);
-				Serial.print(",");
-				Serial.print(autosteer_orig_lat,7);
-				Serial.print(",");
-				Serial.print(autosteer_orig_lon,7);
-				Serial.print(",");
-				Serial.println(autosteer_orig_altitude);
-				*/
-
-				autosteer_lastext = millis();
-				autosteer_source = 3; //tell CAN proxy we're injecting GPS positions now
-				//if external RTK, inject a CAN message with our position
-				
-				//gps position
-				//create pgn 65267, priority 3, source 28, dest 2555
-				msg.set_id(j1939_encode(65267, 3, 28, 255));
-				msg.get_data()->uint32[0] = (autosteer_lat + 210.0) * 10000000;
-				msg.get_data()->uint32[1] = (autosteer_lon + 210.0) * 10000000;
-				//msg.get_data()->uint64 = 0x3a94850f9ae4908c; //fixed position test
-				send_message(msg);
-
-				//PGN 65254, priority 3, src 28, dest 255
-				//date and time
-				//TODO: required on brown box!
-				msg.set_id(j1939_encode(65254,3,28,255));
-				msg.get_data()->uint64 = autosteer_datetime;
-				send_message(msg);
-
-				// vehicle direction and speed
-				// heading is uint16[0] / 128.0
-				// speed is uint16[1] / 256.0 for km/h
-				// pitch is uint16[2] / 128.0 - 200.0 for angle, pos is climbing, neg is sinking
-				// altitude is uint16[3] / 0.125 - 2500 for metres.
-
-				//vehicle direction and speed
-				//pgn 65256, priority 3, src 28, dest 255
-				msg.set_id(j1939_encode(65256,3,28,255));
-				msg.get_data()->uint16[0] = autosteer_heading * 128;
-				msg.get_data()->uint16[1] = autosteer_speed * 256;
-				msg.get_data()->uint16[2] = 200 * 128; //not sure how critical vehicle pitch is
-				msg.get_data()->uint16[3] = (autosteer_altitude + 2500) * 8;
-				//msg.get_data()->uint64 = 0x669061e0037c7ff4; //fixed position test
-				send_message(msg);
-
-				//PGN 65535, first byte 51, priority 3, src 28, dest 255
-				//GPS Status message
-				msg.set_id(j1939_encode(65535,3,28,255));
-				//msg.get_data()->uint64 = 0x02120b15020351; //little endian
-				msg.get_data()->uint64 = 0xff191987ff020351; //fixed position test
-				send_message(msg);
-
-				//PGN 65535, first byte 52, priority 3, src 28, dest 255
-				//GPS satellites used message
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0x1fd47d4260a10552; //little endian
-				//msg.get_data()->uint64 = 0x7875610000f0f052; //fixed position test
-				send_message(msg);
-
-				//PGN 65535, first byte 53, priority 6, src 28, dest 255
-				//Differential receiver status
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0x544110404a640153; //little endian
-
-				if (autosteer_mode == 'R')
-					msg.get_data()->bytes[3] = 0x7a;
-				else if (autosteer_mode == 'F')
-					msg.get_data()->bytes[3] = 0x66;
-				else
-					//if no RTK, show that we have GPS, but very poor quality
-					//cannot really steer.
-					msg.get_data()->bytes[3] = 0x40;
-
-				send_message(msg);
-
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0xffffffffffc000a0;
-				send_message(msg);
-
-				//suspect HDOP, VDOP are in this message
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0x033020b90a000054;
-				send_message(msg);
-	
-				//Serial.print(autosteer_heading);
-				//Serial.print(", ");
-				//Serial.println(autosteer_yawrate);
-
-				//PGN 65535, first byte 0xe1, priority 2, src 28, dest 255
-				//TCM pitch, roll, etc.
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint16[0] = 0xdfe1;
-				msg.get_data()->uint16[1] = (autosteer_roll + 200) * 128.0;
-				msg.get_data()->uint16[2] = (autosteer_yawrate + 200) * 128.0;
-				//msg.get_data()->uint16[3] = 200 * 128; //probably vehicle pitch on a 3000.
-				msg.get_data()->uint16[3] = 0xfa00;
-				send_message(msg);
-
-				//not sure about this one! TCM message
-				msg.set_id(j1939_encode(65535,3,28,255));
-				msg.get_data()->uint64 = 0xf1ff1dfcffffffe3;
-				send_message(msg);
-
-				//TCM message.... investigate
-				msg.set_id(j1939_encode(65535,6,28,255));
-				msg.get_data()->uint64 = 0xffffff11fc08fde0; //should be once a second.
-				//msg.get_data()->uint64 = 0xfffffffff00000e0; //from sf3000
-				send_message(msg);
-
-
-				if (gps_mode == ON_ROOF) {
-					if ((millis() - last_61184) >= 1000) {
-						last_61184 = millis();
-
-						msg.set_id(j1939_encode(61184,5,28,128));
-						msg.get_data()->uint64 = 0x0000000000c3003f;
-						msg.set_length(3);
-						send_message(msg);
-
-						msg.set_id(j1939_encode(61184,5,28,128));
-						msg.get_data()->uint64 = 0xff05f100ef0000f1;
-						msg.set_length(8);
-						send_message(msg);
-
-						msg.set_id(j1939_encode(61184,5,28,128));
-						msg.get_data()->uint64 = 0x00000000003b003f;
-						msg.set_length(3);
-						send_message(msg);
-
-						msg.set_length(8);
-
-						// what is this pgn? serial number of GPS
-						// what frequency? 
-						msg.set_id(j1939_encode(60928, 6, 28, 255));
-						msg.get_data()->uint64 = 0x800017000421e240;
-						//msg.get_data()->uint64 = 0x8000170004333020;
-						send_message(msg);
-
-					}
-				}
+			if (virtual_source) {
+				/* ignore real GPS while virtual positions are
+				   being used. */
+				continue;
 			}
-#endif
+
+			switch(gps_source) {
+			case GPS_PX1172RH:
+				if (psti_process(c)) {
+					autosteer_lastext = t;
+					autosteer_source = 3;
+					send_gps_messages();
+				}
+				break;
+			case GPS_NMEA_BNO:
+				//TODO
+				break;
+			}
 		}
 	}
 }
