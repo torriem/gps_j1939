@@ -362,6 +362,9 @@ void send_nogps_messages(unsigned long t){
 
 void send_gps_messages() {
 	CANFrame msg; //for generating gps messages
+	autosteer_lastext = millis();
+	autosteer_source = 3;
+
 	msg.set_extended(true);
 	msg.set_length(8); //all our messages are going to be 8 bytes
 
@@ -497,6 +500,12 @@ void setup()
 	autosteer_lat = 0;
 	autosteer_lon = 0;
 	override_speed = 0;
+
+	switch(gps_source) {
+	case GPS_PX1172RH:
+		setup_psti(send_gps_messages);
+		break;
+	}
 
 	Serial3.addMemoryForRead(serial_buffer,1024);
 	Serial3.begin(115200);
@@ -702,11 +711,7 @@ void loop()
 
 			switch(gps_source) {
 			case GPS_PX1172RH:
-				if (psti_process(c)) {
-					autosteer_lastext = t;
-					autosteer_source = 3;
-					send_gps_messages();
-				}
+				psti_process(c);
 				break;
 			case GPS_NMEA_BNO:
 				//TODO

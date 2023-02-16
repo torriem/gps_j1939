@@ -48,7 +48,13 @@ KFilter1 yawrate_filter(0.1, 1.0f, 0.0003f);
 KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
 KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
 
-bool psti_process(char c) {
+FixHandler got_psti_fix = NULL;
+
+void setup_psti(FixHandler fix_handler){
+	got_psti_fix = fix_handler;
+}
+
+void psti_process(char c) {
 	if (sti.process(c)) {
 		if (sti.getType() == 30) {
 			uint8_t mhour, mminute, mseconds, mhundredths;
@@ -201,7 +207,8 @@ bool psti_process(char c) {
 				autosteer_lat = latitude;
 				autosteer_lon = longitude;
 
-				return true;
+				if(got_psti_fix)
+					got_psti_fix();
 
 			} else if (sti.getMode() == 'R' || sti.getMode() == 'F') {
 				//if RTK, do terrain compensation
@@ -242,14 +249,9 @@ bool psti_process(char c) {
 				autosteer_roll = roll;
 				autosteer_heading = heading;
 				
-				return true;
+				if(got_psti_fix)
+					got_psti_fix();
 			}
 		}
 	}
-
-	//if (gga.process(c) {
-	//
-	//}
-
-	return false;
 }
