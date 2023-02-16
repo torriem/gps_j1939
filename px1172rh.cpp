@@ -23,32 +23,32 @@ extern double autosteer_orig_lon;
 extern double autosteer_orig_altitude;
 extern uint64_t autosteer_datetime;
 
-uint16_t year=0; 
-uint8_t month=0, day=0;
-uint8_t hour=0, minute=0, seconds=0, hundredths=0;
-double latitude=0;
-double longitude=0;
-double altitude=0;
-double heading=0;
-double heading90=0;
-double roll=0;
-uint8_t fix30_mode;
-bool got_pos=false;
-bool got_attitude=false;
+static uint16_t year=0; 
+static uint8_t month=0, day=0;
+static uint8_t hour=0, minute=0, seconds=0, hundredths=0;
+static double latitude=0;
+static double longitude=0;
+static double altitude=0;
+static double heading=0;
+static double heading90=0;
+static double roll=0;
+static uint8_t fix30_mode;
+static bool got_pos=false;
+static bool got_attitude=false;
 
-float last_heading = 0;
-uint32_t last_heading_time = 0;
+static float last_heading = 0;
+static uint32_t last_heading_time = 0;
 
-char nmea_buffer[160];
+static char nmea_buffer[160];
 //char nmea_buffer1[160];
-STINMEA sti(nmea_buffer, sizeof(nmea_buffer)); //handles PSTI
+static STINMEA sti(nmea_buffer, sizeof(nmea_buffer)); //handles PSTI
 //SimpleNMEAParser gga(nmea_buffer1, sizeof(nmea_buffer1); //handles GGA
 
-KFilter1 yawrate_filter(0.1, 1.0f, 0.0003f);
-KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
-KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
+static KFilter1 yawrate_filter(0.1, 1.0f, 0.0003f);
+static KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
+static KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
 
-FixHandler got_psti_fix = NULL;
+static FixHandler got_psti_fix = NULL;
 
 void setup_psti(FixHandler fix_handler){
 	got_psti_fix = fix_handler;
