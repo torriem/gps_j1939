@@ -34,6 +34,7 @@
 #include "circle_generator.h"
 #include "static_position.h"
 #include "px1172rh.h"
+#include "nmeaimu.h"
 #include <FlexCAN_T4.h>
 
 #define TEENSY_TFT //comment out if don't want any screen.
@@ -281,7 +282,8 @@ void send_message(CANFrame &msg) {
 	}
 }
 
-void send_nogps_messages(unsigned long t){
+void send_nogps_messages(void){
+	unsigned long t = millis();
 	CANFrame msg; //for generating gps messages
 	msg.set_extended(true);
 	msg.set_length(8); //all our messages are going to be 8 bytes
@@ -505,6 +507,11 @@ void setup()
 	case GPS_PX1172RH:
 		setup_psti(send_gps_messages);
 		break;
+	case GPS_NMEA_BNO:
+		//TODO: IMU serial port
+		//setup_nmea_parser(send_gps_messages, send_nogps_messages, (Stream *) NULL);
+		setup_nmea_parser(send_gps_messages, send_nogps_messages, &Serial);
+		break;
 	}
 
 	Serial3.addMemoryForRead(serial_buffer,1024);
@@ -587,14 +594,13 @@ void loop()
 	//virtual_source = VIRTUAL_STATIC;
 
 	while(1) {
-		//perhaps check to see how long since we had our last external GPS reading.
-		//if it's been a certain amount of time, revert to the tractor receiver
-
 		t = millis();
 		if ((t - autosteer_lastext) > GPS_TIMEOUT) {
+			//if it's been too long since a GPS message was last
+			//received, tell the tractor there's no GPS.
 			if (autosteer_source == 3) autosteer_source = 0;
 			autosteer_lastext = t;
-			send_nogps_messages(t);
+			send_nogps_messages();
 		}
 
 		if (t - last_time > 500) {
@@ -714,7 +720,7 @@ void loop()
 				psti_process(c);
 				break;
 			case GPS_NMEA_BNO:
-				//TODO
+				nmea_process(c);
 				break;
 			}
 		}
