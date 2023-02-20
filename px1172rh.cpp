@@ -194,6 +194,7 @@ void psti_process(char c) {
 				else if (heading_delta <= -180) heading_delta += 360; //yawing to right across 0
 				last_heading = heading;
 
+				//TODO make work for different message rates other than 5 Hz
 				yaw_rate = heading_delta / 0.2;  //degrees/second
 				//yaw_rate = yawrate_filter.filter(yaw_rate);
 				autosteer_yawrate = yaw_rate;
@@ -217,6 +218,7 @@ void psti_process(char c) {
 				else if (heading_delta <= -180) heading_delta += 360; //yawing to right across 0
 				last_heading = heading;
 
+				//TODO make work for different message rates other than 5 Hz
 				yaw_rate = heading_delta / 0.2;  //degrees/second
 				//yaw_rate = yawrate_filter.filter(yaw_rate);
 				autosteer_yawrate = yaw_rate;
