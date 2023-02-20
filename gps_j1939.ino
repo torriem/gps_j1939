@@ -509,8 +509,8 @@ void setup()
 		break;
 	case GPS_NMEA_BNO:
 		//TODO: IMU serial port
-		//setup_nmea_parser(send_gps_messages, send_nogps_messages, (Stream *) NULL);
-		setup_nmea_parser(send_gps_messages, send_nogps_messages, &Serial);
+		//setup_nmea_parser(send_gps_messages, (Stream *) NULL);
+		setup_nmea_parser(send_gps_messages, &Serial);
 		break;
 	}
 

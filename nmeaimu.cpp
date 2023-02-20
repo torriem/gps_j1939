@@ -25,18 +25,25 @@ extern double autosteer_orig_lon;
 extern double autosteer_orig_altitude;
 extern uint64_t autosteer_datetime;
 
+//minimum speed to use VTG to calculate IMU heading offset
+#define MIN_VTG_SPEED 0.5 //kph
+//minimum fix to fix distance to calculate a heading
+#define MIN_FIX_DIST 1 //metre
+
+static double last_lat = 400;
+static double last_lon = 400;
 static KFilter1 yawrate_filter(0.1, 1.0f, 0.0003f);
 static KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
 static KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
 
 static FixHandler got_fix = NULL;
-static FixHandler no_fix = NULL;
 
 static NMEAParser<2> parser;
 
 //Use adafruit's library or AOG's modified library?
+#define MAX_LOOKBACK 20
 static Adafruit_BNO08x_RVC rvc;
-static BNO08x_RVC_Data rvc_data[20];
+static BNO08x_RVC_Data rvc_data[MAX_LOOKBACK];
 static int16_t current_rvc = 0;
 static bool  use_imu = false;
 
@@ -85,22 +92,41 @@ static inline void process_imu(void) {
 	double new_offset;
 	uint16_t old_rvc;
 
-	got_gga = 0;
-	got_vtg = 0;
+	got_gga = false;
+	got_vtg = false;
 
-	if (use_imu) {
-		//perform adjustment to GPS position using roll
+	//prepare to look at older IMU position
+	old_rvc = (imu_lookback + current_rvc) % MAX_LOOKBACK;
+	yaw = rvc_data[old_rvc].yaw;
+
+	if (use_imu && yaw < 400) {
+		//if we have a valid IMU reading, calculate the IMU
+		//heading offset and do roll compensation.
 		
-		//get roll from older IMU reading
-		old_rvc = (imu_lookback + current_rvc) % 20;
-
 		roll = rvc_data[old_rvc].roll;
-		yaw = rvc_data[old_rvc].yaw;
 
-		if (autosteer_speed > 0.5) {
+		if(!heading_offset_set && autosteer_speed <= MIN_VTG_SPEED) {
+			//calculate heading based on fix to fix
+			//use that to figure out IMU heading offset
+			if (last_lat < 400) {
+				if (haversine::distance(last_lat, last_lon,
+				                        autosteer_lat,
+						        autosteer_lon) > MIN_FIX_DIST) {
+					autosteer_heading = haversine::bearing(
+					                         last_lat, last_lon,
+							         autosteer_lat, autosteer_lon);
+					heading_offset = autosteer_heading - yaw;
+					if (heading_offset < 0) heading_offset += 360;
+					heading_offset_set = true;
+				}
+
+			} else {
+				last_lat = autosteer_lat;
+				last_lon = autosteer_lon;
+			}
+		} else if (autosteer_speed > MIN_VTG_SPEED) {
 			//if we're moving, calculate an IMU to real heading offset
 			new_offset = vtg_head - yaw;
-
 			if (new_offset < 0) new_offset += 360;
 
 			if (!heading_offset_set) {
@@ -116,39 +142,49 @@ static inline void process_imu(void) {
 
 			//tweak heading offset based on latest VTG heading
 			heading_offset = 0.7*heading_offset + 0.3*new_offset;
-		}
+		}		
+
+		//Use the IMU heading instead of the VTG heading
 		autosteer_heading = fmod(yaw + heading_offset,360);
 		if (autosteer_heading < 0) autosteer_heading += 360;
 
-		heading90 = autosteer_heading - 90;
-		if (heading90 <0) heading90 +=360;
-
 		roll_rad = roll * M_PI / 180.0;
+	} else {
+		//we either don't have an IMU or we haven't read it yet
+		//so don't do roll compensation, but do adjust the GPS
+		//as best we can to the center of the tractor from its
+		//potentially offset position.
+		
+		roll_rad = 0;
+		autosteer_heading = vtg_head;
+	}
 
-		//lateral offset from tilt of tractor
-		tilt_offset = sin(roll_rad) * antenna_height;
-		//lateral offset from antenna to center of tractor
-		center_offset = cos(roll_rad) * antenna_right;
+	//do roll compensation and adjust lat and lon for the 
+	//offsets of the GPS unit
 
-		//move the gps position
+	heading90 = autosteer_heading - 90;
+	if (heading90 <0) heading90 +=360;
+
+	//lateral offset from tilt of tractor
+	tilt_offset = sin(roll_rad) * antenna_height;
+	//lateral offset from antenna to center of tractor
+	center_offset = cos(roll_rad) * antenna_right;
+
+	//move the gps position
+	haversine::move_distance_bearing(autosteer_lat,
+					 autosteer_lon,
+					 heading90,
+					 tilt_offset + center_offset);
+
+	//Adjust altitude
+	autosteer_altitude -= cos(roll_rad) * antenna_height +
+			      sin(roll_rad) * center_offset;
+
+	if (antenna_forward) {
 		haversine::move_distance_bearing(autosteer_lat,
 						 autosteer_lon,
-						 heading90,
-						 tilt_offset + center_offset);
-
-		//Adjust altitude
-		autosteer_altitude -= cos(roll_rad) * antenna_height +
-				      sin(roll_rad) * center_offset;
-
-		if (antenna_forward) {
-			haversine::move_distance_bearing(autosteer_lat,
-							 autosteer_lon,
-							 autosteer_heading,
-							 -antenna_forward);
-		}
-
-	} else {
-		autosteer_heading = vtg_head;
+						 autosteer_heading,
+						 -antenna_forward);
 	}
 
 	//calculate yaw rate.
@@ -209,7 +245,6 @@ void GGA_handler() {
 		//No GPS position at all, so ignore
 		got_gga = false;
 		got_vtg = false;
-		if (no_fix) no_fix();
 		return;
 
 	default:
@@ -257,34 +292,39 @@ void error_handler() {
 }
 
 int16_t get_imu_lookback(void) {
-	return (20 - imu_lookback) * 10;
+	return (MAX_LOOKBACK - imu_lookback) * 10;
 }
 
 void set_imu_lookback(int16_t new_lookback_ms) {
-	if (new_lookback_ms >0 and new_lookback_ms <= 200) {
-		imu_lookback = 20 - new_lookback_ms / 10;
+	if (new_lookback_ms >0 and new_lookback_ms <= (MAX_LOOKBACK * 10)) {
+		imu_lookback = MAX_LOOKBACK - new_lookback_ms / 10;
 	}
 }
 
 //TODO: pass in handler to call when we've got a new position and
 //need to send it over CAN.
-void setup_nmea_parser(FixHandler fix_handler, FixHandler no_fix_handler, Stream *imu_stream = NULL) {
+void setup_nmea_parser(FixHandler fix_handler, Stream *imu_stream = NULL) {
 	parser.setErrorHandler(error_handler);
 	parser.addHandler("G-GGA", GGA_handler);
 	parser.addHandler("G-VTG", VTG_handler);
 
 	got_fix = fix_handler;
-	no_fix = no_fix_handler;
 
 	heading_offset_set = false;
 
 	//zero out imu receive buffers
-	memset(rvc_data,0,sizeof(BNO08x_RVC_Data) * 20);
+	//memset(rvc_data,0,sizeof(BNO08x_RVC_Data) * MAX_LOOKBACK);
+	for (int i=0; i < MAX_LOOKBACK ; i++) {
+		rvc_data[i].yaw = 400; //mark slot as invalid
+	}
 
 	//initialize our timeout counters
 	nmea_timer = 0;
 	imu_timer = 0;
 	rate_timer = 0;
+
+	last_lat = 400;
+	last_lon = 400;
 
 
 	if (imu_stream) {
@@ -296,7 +336,13 @@ void setup_nmea_parser(FixHandler fix_handler, FixHandler no_fix_handler, Stream
 inline void read_imu() {
 	if (use_imu) {
 		if(rvc.read(&rvc_data[current_rvc]) ) {
-			current_rvc = (current_rvc + 1) % 20;
+			current_rvc = (current_rvc + 1) % MAX_LOOKBACK;
+			imu_timer = 0;
+		} else if (imu_timer > 12) {
+			//if 12 ms has elapsed, IMU must have gone silent
+			imu_timer = 0;
+			rvc_data[current_rvc].yaw = 400; //mark invalid
+			current_rvc = (current_rvc + 1) % MAX_LOOKBACK;
 		}
 	}
 }
