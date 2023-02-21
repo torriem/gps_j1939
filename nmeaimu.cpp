@@ -274,7 +274,12 @@ void VTG_handler() {
 
 	// vtg heading
 	parser.getArg(0, vtg_heading);
-	vtg_head = atof(vtg_heading);
+
+	if (vtg_heading[0] != 0) {
+		vtg_head = atof(vtg_heading);
+	} else {
+		vtg_head = 0; //unknown cause we're prob standing still
+	}
 
 	// vtg Speed knots
 	parser.getArg(4, speed_knots);
