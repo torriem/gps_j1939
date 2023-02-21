@@ -103,7 +103,11 @@ static inline void process_imu(void) {
 		//if we have a valid IMU reading, calculate the IMU
 		//heading offset and do roll compensation.
 		
-		roll = rvc_data[old_rvc].roll;
+		if (swap_pitch_roll) {
+			roll = rvc_data[old_rvc].pitch * roll_direction;
+		} else {
+			roll = rvc_data[old_rvc].roll * roll_direction;
+		}
 
 		if(!heading_offset_set && autosteer_speed <= MIN_VTG_SPEED) {
 			//calculate heading based on fix to fix
