@@ -464,7 +464,7 @@ template <size_t S> class NMEAParser {
           tmp = hexToNum(inChar);
           if (tmp != -1) {
             mGotCRC |= (uint8_t)tmp;
-            mState = CRLFCR;
+            mState = CRLFLF;
           }
           else unexpectedChar();
           break;
@@ -477,7 +477,7 @@ template <size_t S> class NMEAParser {
           break;
 
         case CRLFLF:
-          if (inChar == '\n') {
+          if (inChar == '\n' || inChar == '\r') {
             if (mHandleCRC && (mGotCRC != mComputedCRC)) {
               crcError();
             }
