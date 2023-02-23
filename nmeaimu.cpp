@@ -87,7 +87,6 @@ static float vtg_head;
 
 static inline void process_imu(void) {
 	float heading_delta;
-	double roll;
 	double roll_rad;
 	double yaw;
 	double heading90;
@@ -108,9 +107,9 @@ static inline void process_imu(void) {
 		//heading offset and do roll compensation.
 		
 		if (swap_pitch_roll) {
-			roll = rvc_data[old_rvc].pitch * roll_direction;
+			autosteer_roll = rvc_data[old_rvc].pitch * roll_direction;
 		} else {
-			roll = rvc_data[old_rvc].roll * roll_direction;
+			autosteer_roll = rvc_data[old_rvc].roll * roll_direction;
 		}
 
 		if(!heading_offset_set && autosteer_speed <= MIN_VTG_SPEED) {
@@ -152,11 +151,16 @@ static inline void process_imu(void) {
 			heading_offset = 0.7*heading_offset + 0.3*new_offset;
 		}		
 
-		//Use the IMU heading instead of the VTG heading
-		autosteer_heading = fmod(yaw + heading_offset,360);
-		if (autosteer_heading < 0) autosteer_heading += 360;
+		if(heading_offset_set) {
+			//Use the IMU heading instead of the pure VTG heading
+			autosteer_heading = fmod(yaw + heading_offset,360);
+			if (autosteer_heading < 0) autosteer_heading += 360;
+		} else {
+			//no offset yet calculated, so throw in the VTG heading
+			autosteer_heading = vtg_head;
+		}
 
-		roll_rad = roll * M_PI / 180.0;
+		roll_rad = autosteer_roll * M_PI / 180.0;
 	} else {
 		//we either don't have an IMU or we haven't read it yet
 		//so don't do roll compensation, but do adjust the GPS
@@ -165,6 +169,7 @@ static inline void process_imu(void) {
 		
 		roll_rad = 0;
 		autosteer_heading = vtg_head;
+		autosteer_roll = 0;
 	}
 
 	//do roll compensation and adjust lat and lon for the 
