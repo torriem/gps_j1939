@@ -30,6 +30,10 @@ extern uint64_t autosteer_datetime;
 //minimum fix to fix distance to calculate a heading
 #define MIN_FIX_DIST 1 //metre
 
+bool swap_pitch_roll = false;
+float roll_offset = 0;
+float roll_direction = ROLL_NORMAL;
+
 static double last_lat = 400;
 static double last_lon = 400;
 static KFilter1 yawrate_filter(0.1, 1.0f, 0.0003f);
@@ -68,7 +72,7 @@ static char latitude[15];
 static char lat_ns[3];
 static char longitude[15];
 static char lon_ew[3];
-static char fix_quality[2];
+static int fix_quality;
 static char num_sats[4];
 static char hdop[5];
 static char altitude[12];
@@ -205,7 +209,6 @@ static inline void process_imu(void) {
 }
 
 void GGA_handler() {
-
 	if (nmea_timer > 80) {
 		//if at least 80 ms has elapsed since the last 
 		//NMEA message, we need to look again for VTG
@@ -238,7 +241,7 @@ void GGA_handler() {
 		autosteer_lon = -autosteer_lon;
 
 	parser.getArg(5, fix_quality);
-	switch(fix_quality[0]) {
+	switch(fix_quality) {
 	case 4:
 		autosteer_mode = 'R';
 		break;
