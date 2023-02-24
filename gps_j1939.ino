@@ -704,6 +704,8 @@ void loop()
 				virtual_source = VIRTUAL_NONE;
 			break;
 		}
+		//process IMU data if equipped and configured
+		read_imu();
 
 		//now process serial bytes that have accumulated
 		while(Serial3.available()) {

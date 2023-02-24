@@ -54,6 +54,8 @@ static bool  use_imu = false;
 static bool got_gga = false;
 static bool got_vtg = false;
 
+static char buf[3];
+
 //how far back to look at IMU
 static uint16_t imu_lookback = 11;
 
@@ -223,7 +225,36 @@ void GGA_handler() {
 
 	got_gga = true;
 
-	//TODO: snag copies of the fields for re-sending GGA later
+	//TODO: snag copies of unmodified fields for re-sending GGA later
+	
+	parser.getArg(0,fix_time);
+	uint8_t hours, minutes, seconds, hundredths;
+
+	buf[0] = fix_time[0];
+	buf[1] = fix_time[1];
+	hours = atoi(buf);
+
+	buf[0] = fix_time[2];
+	buf[1] = fix_time[3];
+	minutes = atoi(buf);
+
+	buf[0] = fix_time[4];
+	buf[1] = fix_time[5];
+	seconds = atoi(buf);
+
+	if(fix_time[6] == '.' && fix_time[7] != 0 && fix_time[8] != 0) {
+		buf[0] = fix_time[7];
+		buf[1] = fix_time[8];
+		hundredths = atoi(buf);
+	} else {
+		hundredths = 0;
+	}
+
+	autosteer_datetime = ((float)seconds + hundredths /100.0) * 4;
+	autosteer_datetime |= ((uint64_t)minutes << 8);
+	autosteer_datetime |= ((uint64_t)hours << 16);
+	//Date not part of GGA, so fake it for now. 1 Jan 1985
+	autosteer_datetime |= 0x7d7d000401000000;
 	
 	parser.getArg(1,latitude);
 	parser.getArg(2,lat_ns);
@@ -342,6 +373,7 @@ void setup_nmea_parser(FixHandler fix_handler, Stream *imu_stream = NULL) {
 
 	last_lat = 400;
 	last_lon = 400;
+	buf[2] = 0;
 
 
 	if (imu_stream) {
@@ -350,7 +382,7 @@ void setup_nmea_parser(FixHandler fix_handler, Stream *imu_stream = NULL) {
 	}
 }
 
-inline void read_imu() {
+void read_imu() {
 	if (use_imu) {
 		if(rvc.read(&rvc_data[current_rvc]) ) {
 			current_rvc = (current_rvc + 1) % MAX_LOOKBACK;
