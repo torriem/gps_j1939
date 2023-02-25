@@ -520,6 +520,7 @@ void send_config(void) {
 	   antenna lateral offset (positive is to the right)
 	   antenna forward of axle
 
+	   current roll
 	   virtual_source
 	   gps_source
 	   roll offset
@@ -529,10 +530,11 @@ void send_config(void) {
 	char checksum[6];
 
 	snprintf(nmea_buffer, NMEA_BUFFER_SIZE,
-	         "$PTGPS,%.2f,%.2f,%.2f,%d,%d,%.2f,%s,%s,%.2f",
+	         "$PTGPS,%.2f,%.2f,%.2f,%.2f,%d,%d,%.2f,%s,%s,%.2f",
 		 antenna_height,
 		 antenna_right,
 		 antenna_forward,
+		 antenna_roll,
 		 virtual_source,
 		 gps_source,
 		 imu_roll_offset,
