@@ -1,6 +1,6 @@
 #include "nmeaimu.h"
 #include "Adafruit_BNO08x_RVC.h"
-//#include "elapsedMillis.h"
+#include "elapsedMillis.h"
 #include "NMEAParser.h"
 #include "haversine.h"
 #include "kfilter1.h"
@@ -128,8 +128,8 @@ static inline void generate_nmea(void) {
 	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
 
 	//VTG
-	vtg = nmea_buffer + strlen(nmea_buffer);
-	snprintf(vtg,NMEA_BUFFER_SIZE - strlen(nmea_buffer),
+	vtg = nmea_buffer + strnlen(nmea_buffer, NMEA_BUFFER_SIZE);
+	snprintf(vtg,NMEA_BUFFER_SIZE - strnlen(nmea_buffer, NMEA_BUFFER_SIZE),
 	         "$GPVTG,%.3f,T,,,%s,N,%.2f,K",
 	         autosteer_heading,
 		 vtg_speed_knots, //knots
@@ -141,7 +141,7 @@ static inline void generate_nmea(void) {
 	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
 
 	//Send it
-	send_nmea(nmea_buffer,strlen(nmea_buffer));
+	send_nmea(nmea_buffer,strnlen(nmea_buffer, NMEA_BUFFER_SIZE));
 
 }
 
