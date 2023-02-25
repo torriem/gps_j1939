@@ -111,7 +111,7 @@ static inline void generate_nmea(void) {
 
 	//GGA
 	snprintf(nmea_buffer,NMEA_BUFFER_SIZE,
-	         "$GNGGA,%s,%d.%d,%s,%d.%d,%s,%d,%s,%s,%.3f,M,%s,M,%s,",
+	         "$GNGGA,%s,%d.%d,%s,%d.%d,%s,%d,%s,%s,%.2f,M,%s,M,%s,0000",
 	         fix_time, 
 		 lat1, lat2, (autosteer_lat<0 ? "S" : "N"),
 		 lon1, lon2, (autosteer_lon<0 ? "W" : "E"),
@@ -130,7 +130,7 @@ static inline void generate_nmea(void) {
 	//VTG
 	vtg = nmea_buffer + strnlen(nmea_buffer, NMEA_BUFFER_SIZE);
 	snprintf(vtg,NMEA_BUFFER_SIZE - strnlen(nmea_buffer, NMEA_BUFFER_SIZE),
-	         "$GPVTG,%.3f,T,,,%s,N,%.2f,K",
+	         "$GNVTG,%.3f,T,,M,%s,N,%.2f,K,D",
 	         autosteer_heading,
 		 vtg_speed_knots, //knots
 		 autosteer_speed); //kph
