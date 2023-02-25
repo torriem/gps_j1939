@@ -30,7 +30,7 @@ extern uint64_t autosteer_datetime;
 //minimum speed to use VTG to calculate IMU heading offset
 #define MIN_VTG_SPEED 0.5 //kph
 //minimum fix to fix distance to calculate a heading
-#define MIN_FIX_DIST 1 //metre
+#define MIN_FIX_DIST 3 //metre
 
 extern bool imu_use_pitch;
 extern float imu_roll_offset;
