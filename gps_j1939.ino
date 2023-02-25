@@ -12,8 +12,6 @@
     torriem@gmail.com
  */
 
-//ESP32 only
-
 #include <math.h>
 #include "circle_generator.h"
 #include "static_position.h"
@@ -21,6 +19,7 @@
 #include "nmeaimu.h"
 #include "shared_nmea_buffer.h"
 #include "nmea_checksum.h"
+#include <BluetoothSerial.h> //ESP32 only
 
 uint8_t serial_buffer[1024]; //overkill hopefully
 
@@ -44,7 +43,7 @@ double antenna_height=120 * INCHES; //inches above ground
 double antenna_right=26.5 * INCHES; //for double antenna, how far away the right-most antenna is from the from center
 #define GPS_TIMEOUT 400 //after 200ms of no GPS position, show "No GPS" on monitor
 
-uint8_t gps_source = GPS_PX1172RH;
+uint8_t gps_source = GPS_NMEA_BNO;
 uint8_t virtual_source = VIRTUAL_NONE;
 
 //int8_t monitor_can = -1;
@@ -79,16 +78,19 @@ unsigned long last_61184 = millis();
 long can_messages_received = 0; // a sort of heartbeat on the CAN bus.
 uint8_t spinner_state = 0;
 
-bool debug_messages=false;
+BluetoothSerial SerialBT;
+HardwareSerial SerialIMU(1);
+HardwareSerial SerialGPS(2);
+
 
 void send_serial_data(char *buffer, int buffer_len) {
 	/* send generated NMEA messages to RS232 */
 	//TODO
 	//rs232.write(buffer,buffer_len);
-	Serial.write(buffer,buffer_len);
+	Serial.write((uint8_t *)buffer,buffer_len);
 
 	// and send to bluetooth as well
-	//bluetooth.write(buffer, buffer_len);
+	SerialBT.write((uint8_t *)buffer, buffer_len);
 }
 
 void send_config(void) {
@@ -126,16 +128,19 @@ void send_config(void) {
 	strncat(nmea_buffer,checksum, NMEA_BUFFER_SIZE);
 	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
 
-	Serial.write(nmea_buffer);
-	//bluetooth.write(nmea_buffer);
+	Serial.write((uint8_t *)nmea_buffer,strnlen(nmea_buffer, NMEA_BUFFER_SIZE));
+	SerialBT.write((uint8_t *)nmea_buffer,strnlen(nmea_buffer, NMEA_BUFFER_SIZE));
 }
 
 void setup()
 {
-	debug_messages = false;
 	Serial.begin(115200);
+	SerialGPS.begin(460800,SERIAL_8N1,25,14);
+	SerialIMU.begin(115200,SERIAL_8N1,27,16);
+	SerialBT.begin("rovertest");
+
 	delay(2000);
-	Serial.println("gps_j1939");
+	Serial.println("gps_j1939 on ESP32");
 	autosteer_source = 0;
 	autosteer_lat = 0;
 	autosteer_lon = 0;
@@ -147,7 +152,7 @@ void setup()
 	case GPS_NMEA_BNO:
 		//TODO: IMU serial port
 		//setup_nmea_parser(send_gps_messages, (Stream *) NULL);
-		setup_nmea_parser(NULL, &Serial, send_serial_data);
+		setup_nmea_parser(NULL, &SerialIMU, send_serial_data);
 		break;
 	}
 }
@@ -201,12 +206,19 @@ void loop()
 				virtual_source = VIRTUAL_NONE;
 			break;
 		}
+
+		//process bluetooth ntrip
+		while (SerialBT.available())
+		{
+			SerialGPS.write(SerialBT.read());
+		}
+
 		//process IMU data if equipped and configured
 		read_imu();
 
 		//now process serial bytes that have accumulated
-		while(Serial3.available()) {
-			c = Serial3.read();
+		while(SerialGPS.available()) {
+			c = SerialGPS.read();
 
 			if (virtual_source) {
 				/* ignore real GPS while virtual positions are
