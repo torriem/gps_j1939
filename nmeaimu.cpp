@@ -5,7 +5,9 @@
 #include "haversine.h"
 #include "kfilter1.h"
 #include "SimpleKalmanFilter.h"
-#include "math.h"
+#include <math.h>
+#include "shared_nmea_buffer.h"
+#include "nmea_checksum.h"
 	
 extern double antenna_forward;
 extern double antenna_height;
@@ -30,9 +32,9 @@ extern uint64_t autosteer_datetime;
 //minimum fix to fix distance to calculate a heading
 #define MIN_FIX_DIST 1 //metre
 
-bool swap_pitch_roll = false;
-float roll_offset = 0;
-float roll_direction = ROLL_NORMAL;
+extern bool imu_use_pitch;
+extern float imu_roll_offset;
+extern bool imu_reverse;
 
 static double last_lat = 400;
 static double last_lon = 400;
@@ -41,6 +43,7 @@ static KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
 static KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
 
 static FixHandler got_fix = NULL;
+static SendNMEA send_nmea = NULL;
 
 static NMEAParser<2> parser;
 
@@ -63,8 +66,8 @@ static elapsedMillis nmea_timer;
 static elapsedMillis imu_timer;
 static elapsedMillis rate_timer;
 
-static bool heading_offset_set = false;
-static float heading_offset;
+extern bool imu_heading_offset_set;
+extern float imu_heading_offset;
 static float last_heading = 0;
 
 //places to store NMEA fields
@@ -79,13 +82,68 @@ static char num_sats[4];
 static char hdop[5];
 static char altitude[12];
 static char dgps_age[10];
+static char geoid[10];
 
 // VTG
 static char vtg_heading[12] = { };
-static char speed_knots[10] = { };
+static char vtg_speed_knots[10] = { };
 static float vtg_head;
 
+static char checksum[5]; //* plus 2 byte checksum plus 2 CRLF bytes
 
+static inline void generate_nmea(void) {
+	/* generate new NMEA and VTG sentences based on
+	 * our corrected position and heading
+	 */
+
+	char *vtg;
+
+	double lat_min, lon_min;
+	int lat1, lat2, lon1, lon2;
+
+	lat_min = fabs(autosteer_lat - int(autosteer_lat)) * 60;
+	lat1 = abs(int(autosteer_lat)) * 100 + int(lat_min);
+	lat2 = int((lat_min - int(lat_min)) * 10000000);
+
+	lon_min = fabs(autosteer_lon - int(autosteer_lon)) * 60;
+	lon1 = abs(int(autosteer_lon)) * 100 + int(lon_min);
+	lon2 = int((lon_min - int(lon_min)) * 10000000);
+
+	//GGA
+	snprintf(nmea_buffer,NMEA_BUFFER_SIZE,
+	         "$GNGGA,%s,%d.%d,%s,%d.%d,%s,%d,%s,%s,%.3f,M,%s,M,%s,",
+	         fix_time, 
+		 lat1, lat2, (autosteer_lat<0 ? "S" : "N"),
+		 lon1, lon2, (autosteer_lon<0 ? "W" : "E"),
+		 fix_quality,
+		 num_sats,
+		 hdop,
+		 autosteer_altitude,
+		 geoid,
+		 dgps_age);
+
+	//add checksum and CRLF
+	compute_nmea_checksum(nmea_buffer, checksum);
+	strncat(nmea_buffer,checksum, NMEA_BUFFER_SIZE);
+	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
+
+	//VTG
+	vtg = nmea_buffer + strlen(nmea_buffer);
+	snprintf(vtg,NMEA_BUFFER_SIZE - strlen(nmea_buffer),
+	         "$GPVTG,%.3f,T,,,%s,N,%.2f,K",
+	         autosteer_heading,
+		 vtg_speed_knots, //knots
+		 autosteer_speed); //kph
+
+	//add checksum and CRLF
+	compute_nmea_checksum(vtg, checksum);
+	strncat(nmea_buffer,checksum, NMEA_BUFFER_SIZE);
+	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
+
+	//Send it
+	send_nmea(nmea_buffer,strlen(nmea_buffer));
+
+}
 
 static inline void process_imu(void) {
 	float heading_delta;
@@ -96,9 +154,15 @@ static inline void process_imu(void) {
 	double center_offset;
 	double new_offset;
 	uint16_t old_rvc;
+	float roll_direction;
 
 	got_gga = false;
 	got_vtg = false;
+
+	if (imu_reverse) 
+		roll_direction = -1;
+	else 
+		roll_direction = 1;
 
 	//prepare to look at older IMU position
 	old_rvc = (imu_lookback + current_rvc) % MAX_LOOKBACK;
@@ -108,13 +172,15 @@ static inline void process_imu(void) {
 		//if we have a valid IMU reading, calculate the IMU
 		//heading offset and do roll compensation.
 		
-		if (swap_pitch_roll) {
+		if (imu_use_pitch) {
 			autosteer_roll = rvc_data[old_rvc].pitch * roll_direction;
 		} else {
 			autosteer_roll = rvc_data[old_rvc].roll * roll_direction;
 		}
 
-		if(!heading_offset_set && autosteer_speed <= MIN_VTG_SPEED) {
+		autosteer_roll += imu_roll_offset;
+
+		if(!imu_heading_offset_set && autosteer_speed <= MIN_VTG_SPEED) {
 			//calculate heading based on fix to fix
 			//use that to figure out IMU heading offset
 			if (last_lat < 400) {
@@ -124,9 +190,9 @@ static inline void process_imu(void) {
 					autosteer_heading = haversine::bearing(
 					                         last_lat, last_lon,
 							         autosteer_lat, autosteer_lon);
-					heading_offset = autosteer_heading - yaw;
-					if (heading_offset < 0) heading_offset += 360;
-					heading_offset_set = true;
+					imu_heading_offset = autosteer_heading - yaw;
+					if (imu_heading_offset < 0) imu_heading_offset += 360;
+					imu_heading_offset_set = true;
 				}
 
 			} else {
@@ -138,11 +204,11 @@ static inline void process_imu(void) {
 			new_offset = vtg_head - yaw;
 			if (new_offset < 0) new_offset += 360;
 
-			if (!heading_offset_set) {
-				heading_offset_set = true;
-				heading_offset  = new_offset;
+			if (!imu_heading_offset_set) {
+				imu_heading_offset_set = true;
+				imu_heading_offset  = new_offset;
 			} else {
-				if (fabs(new_offset - heading_offset) > 150) {
+				if (fabs(new_offset - imu_heading_offset) > 150) {
 					//probably driving in reverse
 					new_offset -= 180;
 					if (new_offset < 0) new_offset += 360;
@@ -150,12 +216,12 @@ static inline void process_imu(void) {
 			}
 
 			//tweak heading offset based on latest VTG heading
-			heading_offset = 0.7*heading_offset + 0.3*new_offset;
+			imu_heading_offset = 0.7*imu_heading_offset + 0.3*new_offset;
 		}		
 
-		if(heading_offset_set) {
+		if(imu_heading_offset_set) {
 			//Use the IMU heading instead of the pure VTG heading
-			autosteer_heading = fmod(yaw + heading_offset,360);
+			autosteer_heading = fmod(yaw + imu_heading_offset,360);
 			if (autosteer_heading < 0) autosteer_heading += 360;
 		} else {
 			//no offset yet calculated, so throw in the VTG heading
@@ -213,6 +279,7 @@ static inline void process_imu(void) {
 	rate_timer = 0;  //should approximate time between messages
 
 	if(got_fix) got_fix();
+	generate_nmea();
 }
 
 void GGA_handler() {
@@ -297,6 +364,11 @@ void GGA_handler() {
 	parser.getArg(8, altitude);
 	autosteer_altitude = atof(altitude);
 
+	parser.getArg(6, num_sats);
+	parser.getArg(7, hdop);
+	parser.getArg(10, geoid);
+	parser.getArg(12, dgps_age);
+
 	if (got_vtg) {
 		//we've got our pair now, we can do
 		//imu processing and send the data
@@ -325,8 +397,8 @@ void VTG_handler() {
 	}
 
 	// vtg Speed knots
-	parser.getArg(4, speed_knots);
-	autosteer_speed = atof(speed_knots);
+	parser.getArg(4, vtg_speed_knots);
+	autosteer_speed = atof(vtg_speed_knots);
 	autosteer_speed *= 1.852; //convert to kph
 
 	if(got_gga) {
@@ -351,14 +423,15 @@ void set_imu_lookback(int16_t new_lookback_ms) {
 
 //TODO: pass in handler to call when we've got a new position and
 //need to send it over CAN.
-void setup_nmea_parser(FixHandler fix_handler, Stream *imu_stream = NULL) {
+void setup_nmea_parser(FixHandler fix_handler, Stream *imu_stream = NULL, SendNMEA send_nmea_handler = NULL) {
 	parser.setErrorHandler(error_handler);
 	parser.addHandler("G-GGA", GGA_handler);
 	parser.addHandler("G-VTG", VTG_handler);
 
 	got_fix = fix_handler;
+	send_nmea = send_nmea_handler;
 
-	heading_offset_set = false;
+	imu_heading_offset_set = false;
 
 	//zero out imu receive buffers
 	//memset(rvc_data,0,sizeof(BNO08x_RVC_Data) * MAX_LOOKBACK);

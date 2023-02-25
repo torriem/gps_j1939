@@ -35,6 +35,8 @@
 #include "static_position.h"
 #include "px1172rh.h"
 #include "nmeaimu.h"
+#include "shared_nmea_buffer.h"
+#include "nmea_checksum.h"
 #include <FlexCAN_T4.h>
 
 #define TEENSY_TFT //comment out if don't want any screen.
@@ -82,6 +84,13 @@ uint8_t virtual_source = VIRTUAL_NONE;
 
 //int8_t monitor_can = -1;
 int8_t monitor_can = 0;
+
+float imu_roll_offset = 0;
+bool imu_use_pitch = false; //use pitch instead of roll
+bool imu_reverse = false; //positive should be to right I think
+bool imu_heading_offset_set = false;
+float imu_heading_offset = 0;
+
 
 //external GPS source variables
 double autosteer_lat=0;
@@ -492,6 +501,53 @@ void send_gps_messages() {
 	}
 }
 
+void send_serial_data(char *buffer, int buffer_len) {
+	/* send generated NMEA messages to RS232 */
+	//TODO
+	//rs232.write(buffer,buffer_len);
+	Serial.write(buffer,buffer_len);
+
+	// and send to bluetooth as well
+	//bluetooth.write(buffer, buffer_len);
+}
+
+void send_config(void) {
+	/* send a proprietary NMEA string to relavant
+	   serial ports that contains the current
+	   configuration
+
+	   antenna height
+	   antenna lateral offset (positive is to the right)
+	   antenna forward of axle
+
+	   virtual_source
+	   gps_source
+	   roll offset
+	   imu heading offset, if known
+	  */
+
+	char checksum[6];
+
+	snprintf(nmea_buffer, NMEA_BUFFER_SIZE,
+	         "$PTGPS,%.2f,%.2f,%.2f,%d,%d,%.2f,%s,%s,%.2f",
+		 antenna_height,
+		 antenna_right,
+		 antenna_forward,
+		 virtual_source,
+		 gps_source,
+		 imu_roll_offset,
+		 (imu_use_pitch ? "P" : "R"),
+		 (imu_reverse ? "R" : "F"),
+		 (imu_heading_offset_set ? imu_heading_offset : 400) );
+
+	compute_nmea_checksum(nmea_buffer, checksum);
+	strncat(nmea_buffer,checksum, NMEA_BUFFER_SIZE);
+	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
+
+	Serial.write(nmea_buffer);
+	//bluetooth.write(nmea_buffer);
+}
+
 void setup()
 {
 	debug_messages = false;
@@ -510,7 +566,7 @@ void setup()
 	case GPS_NMEA_BNO:
 		//TODO: IMU serial port
 		//setup_nmea_parser(send_gps_messages, (Stream *) NULL);
-		setup_nmea_parser(send_gps_messages, &Serial);
+		setup_nmea_parser(send_gps_messages, &Serial, send_serial_data);
 		break;
 	}
 
@@ -603,7 +659,10 @@ void loop()
 			send_nogps_messages();
 		}
 
+
 		if (t - last_time > 500) {
+			//TODO: make this once a second.
+			send_config();
 #ifdef TEENSY_TFT
 			tft.setTextColor(rgb(0,0,0), 0xffff);
 			tft.setFont(LiberationMono_20);
