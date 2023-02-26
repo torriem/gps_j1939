@@ -1,6 +1,7 @@
 #include "nmeaimu.h"
-#include "Adafruit_BNO08x_RVC.h"
-#include "elapsedMillis.h"
+#include "globals.h"
+#include <Adafruit_BNO08x_RVC.h>
+#include <elapsedMillis.h>
 #include "NMEAParser.h"
 #include "haversine.h"
 #include "kfilter1.h"
@@ -9,32 +10,14 @@
 #include "shared_nmea_buffer.h"
 #include "nmea_checksum.h"
 	
-extern double antenna_forward;
-extern double antenna_height;
-extern double antenna_right;
-
-extern double autosteer_lat;
-extern double autosteer_lon;
-extern double autosteer_heading;
-extern double autosteer_roll;
-extern double autosteer_yawrate;
-extern double autosteer_speed;
-extern double autosteer_altitude;
-extern char autosteer_mode;
-
 extern double autosteer_orig_lat;
 extern double autosteer_orig_lon;
 extern double autosteer_orig_altitude;
-extern uint64_t autosteer_datetime;
 
 //minimum speed to use VTG to calculate IMU heading offset
 #define MIN_VTG_SPEED 0.5 //kph
 //minimum fix to fix distance to calculate a heading
 #define MIN_FIX_DIST 3 //metre
-
-extern bool imu_use_pitch;
-extern float imu_roll_offset;
-extern bool imu_reverse;
 
 static double last_lat = 400;
 static double last_lon = 400;
@@ -58,9 +41,6 @@ static bool got_gga = false;
 static bool got_vtg = false;
 
 static char buf[3];
-
-//how far back to look at IMU
-static uint16_t imu_lookback = 11;
 
 static elapsedMillis nmea_timer;
 static elapsedMillis imu_timer;
@@ -101,24 +81,24 @@ static inline void generate_nmea(void) {
 	double lat_min, lon_min;
 	int lat1, lat2, lon1, lon2;
 
-	lat_min = fabs(autosteer_lat - int(autosteer_lat)) * 60;
-	lat1 = abs(int(autosteer_lat)) * 100 + int(lat_min);
+	lat_min = fabs(gps_latitude - int(gps_latitude)) * 60;
+	lat1 = abs(int(gps_latitude)) * 100 + int(lat_min);
 	lat2 = int((lat_min - int(lat_min)) * 10000000);
 
-	lon_min = fabs(autosteer_lon - int(autosteer_lon)) * 60;
-	lon1 = abs(int(autosteer_lon)) * 100 + int(lon_min);
+	lon_min = fabs(gps_longitude - int(gps_longitude)) * 60;
+	lon1 = abs(int(gps_longitude)) * 100 + int(lon_min);
 	lon2 = int((lon_min - int(lon_min)) * 10000000);
 
 	//GGA
 	snprintf(nmea_buffer,NMEA_BUFFER_SIZE,
 	         "$GNGGA,%s,%d.%d,%s,%d.%d,%s,%d,%s,%s,%.2f,M,%s,M,%s,0000",
 	         fix_time, 
-		 lat1, lat2, (autosteer_lat<0 ? "S" : "N"),
-		 lon1, lon2, (autosteer_lon<0 ? "W" : "E"),
+		 lat1, lat2, (gps_latitude<0 ? "S" : "N"),
+		 lon1, lon2, (gps_longitude<0 ? "W" : "E"),
 		 fix_quality,
 		 num_sats,
 		 hdop,
-		 autosteer_altitude,
+		 gps_altitude,
 		 geoid,
 		 dgps_age);
 
@@ -131,9 +111,9 @@ static inline void generate_nmea(void) {
 	vtg = nmea_buffer + strnlen(nmea_buffer, NMEA_BUFFER_SIZE);
 	snprintf(vtg,NMEA_BUFFER_SIZE - strnlen(nmea_buffer, NMEA_BUFFER_SIZE),
 	         "$GNVTG,%.3f,T,,M,%s,N,%.2f,K,D",
-	         autosteer_heading,
+	         gps_heading,
 		 vtg_speed_knots, //knots
-		 autosteer_speed); //kph
+		 gps_speed); //kph
 
 	//add checksum and CRLF
 	compute_nmea_checksum(vtg, checksum);
@@ -164,8 +144,8 @@ static inline void process_imu(void) {
 	else 
 		roll_direction = 1;
 
-	//prepare to look at older IMU position
-	old_rvc = (imu_lookback + current_rvc) % MAX_LOOKBACK;
+	//look at older IMU position
+	old_rvc = (MAX_LOOKBACK - imu_lookback / 10 + current_rvc) % MAX_LOOKBACK;
 	yaw = rvc_data[old_rvc].yaw;
 
 	if (use_imu && yaw < 400) {
@@ -173,33 +153,33 @@ static inline void process_imu(void) {
 		//heading offset and do roll compensation.
 		
 		if (imu_use_pitch) {
-			autosteer_roll = rvc_data[old_rvc].pitch * roll_direction;
+			gps_roll = rvc_data[old_rvc].pitch * roll_direction;
 		} else {
-			autosteer_roll = rvc_data[old_rvc].roll * roll_direction;
+			gps_roll = rvc_data[old_rvc].roll * roll_direction;
 		}
 
-		autosteer_roll += imu_roll_offset;
+		gps_roll += imu_roll_offset;
 
-		if(!imu_heading_offset_set && autosteer_speed <= MIN_VTG_SPEED) {
+		if(!imu_heading_offset_set && gps_speed <= MIN_VTG_SPEED) {
 			//calculate heading based on fix to fix
 			//use that to figure out IMU heading offset
 			if (last_lat < 400) {
 				if (haversine::distance(last_lat, last_lon,
-				                        autosteer_lat,
-						        autosteer_lon) > MIN_FIX_DIST) {
-					autosteer_heading = haversine::bearing(
+				                        gps_latitude,
+						        gps_longitude) > MIN_FIX_DIST) {
+					gps_heading = haversine::bearing(
 					                         last_lat, last_lon,
-							         autosteer_lat, autosteer_lon);
-					imu_heading_offset = autosteer_heading - yaw;
+							         gps_latitude, gps_longitude);
+					imu_heading_offset = gps_heading - yaw;
 					if (imu_heading_offset < 0) imu_heading_offset += 360;
 					imu_heading_offset_set = true;
 				}
 
 			} else {
-				last_lat = autosteer_lat;
-				last_lon = autosteer_lon;
+				last_lat = gps_latitude;
+				last_lon = gps_longitude;
 			}
-		} else if (autosteer_speed > MIN_VTG_SPEED) {
+		} else if (gps_speed > MIN_VTG_SPEED) {
 			//if we're moving, calculate an IMU to real heading offset
 			new_offset = vtg_head - yaw;
 			if (new_offset < 0) new_offset += 360;
@@ -221,14 +201,14 @@ static inline void process_imu(void) {
 
 		if(imu_heading_offset_set) {
 			//Use the IMU heading instead of the pure VTG heading
-			autosteer_heading = fmod(yaw + imu_heading_offset,360);
-			if (autosteer_heading < 0) autosteer_heading += 360;
+			gps_heading = fmod(yaw + imu_heading_offset,360);
+			if (gps_heading < 0) gps_heading += 360;
 		} else {
 			//no offset yet calculated, so throw in the VTG heading
-			autosteer_heading = vtg_head;
+			gps_heading = vtg_head;
 		}
 
-		roll_rad = autosteer_roll * M_PI / 180.0;
+		roll_rad = gps_roll * M_PI / 180.0;
 	} else {
 		//we either don't have an IMU or we haven't read it yet
 		//so don't do roll compensation, but do adjust the GPS
@@ -236,14 +216,14 @@ static inline void process_imu(void) {
 		//potentially offset position.
 		
 		roll_rad = 0;
-		autosteer_heading = vtg_head;
-		autosteer_roll = 0;
+		gps_heading = vtg_head;
+		gps_roll = 0;
 	}
 
 	//do roll compensation and adjust lat and lon for the 
 	//offsets of the GPS unit
 
-	heading90 = autosteer_heading - 90;
+	heading90 = gps_heading - 90;
 	if (heading90 <0) heading90 +=360;
 
 	//lateral offset from tilt of tractor
@@ -252,29 +232,29 @@ static inline void process_imu(void) {
 	center_offset = cos(roll_rad) * antenna_right;
 
 	//move the gps position
-	haversine::move_distance_bearing(autosteer_lat,
-					 autosteer_lon,
+	haversine::move_distance_bearing(gps_latitude,
+					 gps_longitude,
 					 heading90,
 					 tilt_offset + center_offset);
 
 	//Adjust altitude
-	autosteer_altitude -= cos(roll_rad) * antenna_height +
+	gps_altitude -= cos(roll_rad) * antenna_height +
 			      sin(roll_rad) * center_offset;
 
 	if (antenna_forward) {
-		haversine::move_distance_bearing(autosteer_lat,
-						 autosteer_lon,
-						 autosteer_heading,
+		haversine::move_distance_bearing(gps_latitude,
+						 gps_longitude,
+						 gps_heading,
 						 -antenna_forward);
 	}
 
 	//calculate yaw rate.
-	heading_delta = autosteer_heading - last_heading;
+	heading_delta = gps_heading - last_heading;
 	if (heading_delta > 180) heading_delta -= 360; //yawing left across 0
 	else if (heading_delta <= -180) heading_delta += 360; //yawing right across 0
 
-	last_heading = autosteer_heading;
-	autosteer_yawrate = heading_delta * 1000.0 / rate_timer;
+	last_heading = gps_heading;
+	gps_yawrate = heading_delta * 1000.0 / rate_timer;
 
 	rate_timer = 0;  //should approximate time between messages
 
@@ -317,52 +297,44 @@ void GGA_handler() {
 		hundredths = 0;
 	}
 
-	autosteer_datetime = ((float)seconds + hundredths /100.0) * 4;
-	autosteer_datetime |= ((uint64_t)minutes << 8);
-	autosteer_datetime |= ((uint64_t)hours << 16);
+	gps_j1939_datetime = ((float)seconds + hundredths /100.0) * 4;
+	gps_j1939_datetime |= ((uint64_t)minutes << 8);
+	gps_j1939_datetime |= ((uint64_t)hours << 16);
 	//Date not part of GGA, so fake it for now. 1 Jan 1985
-	autosteer_datetime |= 0x7d7d000401000000;
+	gps_j1939_datetime |= 0x7d7d000401000000;
 	
 	parser.getArg(1,latitude);
 	parser.getArg(2,lat_ns);
 
-	autosteer_lat = atof(latitude);
-	autosteer_lat = int(autosteer_lat / 100) /*deg part*/ +
-		          (autosteer_lat - int(autosteer_lat/100) * 100) / 60; /*decimal part*/
+	gps_latitude = atof(latitude);
+	gps_latitude = int(gps_latitude / 100) /*deg part*/ +
+		          (gps_latitude - int(gps_latitude/100) * 100) / 60; /*decimal part*/
 
 	if (lat_ns[0] == 'S') 
-		autosteer_lat = -autosteer_lat;
+		gps_latitude = -gps_latitude;
 
 	parser.getArg(3,longitude);
 	parser.getArg(4,lon_ew);
 
-	autosteer_lon = atof(longitude);
-	autosteer_lon = int(autosteer_lon / 100) /*deg part*/ +
-		          (autosteer_lon - int(autosteer_lon/100) * 100) / 60; /*decimal part*/
+	gps_longitude = atof(longitude);
+	gps_longitude = int(gps_longitude / 100) /*deg part*/ +
+		          (gps_longitude - int(gps_longitude/100) * 100) / 60; /*decimal part*/
 	
 	if (lon_ew[0] == 'W')
-		autosteer_lon = -autosteer_lon;
+		gps_longitude = -gps_longitude;
 
 	parser.getArg(5, fix_quality);
-	switch(fix_quality) {
-	case 4:
-		autosteer_mode = 'R';
-		break;
-	case 5:
-		autosteer_mode = 'F';
-		break;
-	case 0:
+	gps_mode = fix_quality;
+
+	if (gps_mode == 0) {
 		//No GPS position at all, so ignore
 		got_gga = false;
 		got_vtg = false;
 		return;
-
-	default:
-		autosteer_mode = 'G';
 	}
 
 	parser.getArg(8, altitude);
-	autosteer_altitude = atof(altitude);
+	gps_altitude = atof(altitude);
 
 	parser.getArg(6, num_sats);
 	parser.getArg(7, hdop);
@@ -398,8 +370,8 @@ void VTG_handler() {
 
 	// vtg Speed knots
 	parser.getArg(4, vtg_speed_knots);
-	autosteer_speed = atof(vtg_speed_knots);
-	autosteer_speed *= 1.852; //convert to kph
+	gps_speed = atof(vtg_speed_knots);
+	gps_speed *= 1.852; //convert to kph
 
 	if(got_gga) {
 		process_imu();
@@ -412,13 +384,15 @@ void error_handler() {
 }
 
 int16_t get_imu_lookback(void) {
-	return (MAX_LOOKBACK - imu_lookback) * 10;
+	return imu_lookback;
+	//return (MAX_LOOKBACK - imu_lookback) * 10;
 }
 
 void set_imu_lookback(int16_t new_lookback_ms) {
-	if (new_lookback_ms >0 and new_lookback_ms <= (MAX_LOOKBACK * 10)) {
-		imu_lookback = MAX_LOOKBACK - new_lookback_ms / 10;
-	}
+	imu_lookback = new_lookback_ms;
+	//if (new_lookback_ms >0 and new_lookback_ms <= (MAX_LOOKBACK * 10)) {
+	//	imu_lookback = MAX_LOOKBACK - new_lookback_ms / 10;
+	//}
 }
 
 //TODO: pass in handler to call when we've got a new position and

@@ -3,16 +3,6 @@
 
 #include <Arduino.h>
 
-extern double autosteer_lat;
-extern double autosteer_lon;
-extern double autosteer_heading;
-extern double autosteer_roll;
-extern double autosteer_yawrate;
-extern double autosteer_speed;
-extern double autosteer_altitude;
-extern uint64_t autosteer_datetime;
-extern char autosteer_mode;
-
 /* This class is a latitude and longitude generator that
  * virtually drives in a big circle to allow us to set
  * a circle track on the brown box monitor according.

@@ -3,16 +3,6 @@
 
 #include <Arduino.h>
 
-extern double autosteer_lat;
-extern double autosteer_lon;
-extern double autosteer_heading;
-extern double autosteer_roll;
-extern double autosteer_yawrate;
-extern double autosteer_speed;
-extern double autosteer_altitude;
-extern uint64_t autosteer_datetime;
-extern char autosteer_mode;
-
 /* This class generates a static position, simulating a GPS
  * receiver that is not moving.  This can be used to recall
  * a certain lat/lon position for setting an AB or A+heading

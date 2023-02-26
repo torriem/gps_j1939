@@ -1,27 +1,15 @@
 #include "px1172rh.h"
+#include "globals.h"
+#include "shared_nmea_buffer.h"
 #include "stinmea.h"
 #include "haversine.h"
 #include "kfilter1.h"
 #include "SimpleKalmanFilter.h"
 #include "math.h"
 	
-extern double antenna_forward;
-extern double antenna_height;
-extern double antenna_right;
-
-extern double autosteer_lat;
-extern double autosteer_lon;
-extern double autosteer_heading;
-extern double autosteer_roll;
-extern double autosteer_yawrate;
-extern double autosteer_speed;
-extern double autosteer_altitude;
-extern char autosteer_mode;
-
 extern double autosteer_orig_lat;
 extern double autosteer_orig_lon;
 extern double autosteer_orig_altitude;
-extern uint64_t autosteer_datetime;
 
 static uint16_t year=0; 
 static uint8_t month=0, day=0;
@@ -39,16 +27,71 @@ static bool got_attitude=false;
 static float last_heading = 0;
 static uint32_t last_heading_time = 0;
 
-static char nmea_buffer[160];
-//char nmea_buffer1[160];
-static STINMEA sti(nmea_buffer, sizeof(nmea_buffer)); //handles PSTI
-//SimpleNMEAParser gga(nmea_buffer1, sizeof(nmea_buffer1); //handles GGA
+static char sti_nmea_buffer[160];
+static STINMEA sti(sti_nmea_buffer, sizeof(sti_nmea_buffer)); //handles PSTI
 
 static KFilter1 yawrate_filter(0.1, 1.0f, 0.0003f);
 static KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
 static KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
 
 static FixHandler got_psti_fix = NULL;
+static SendNMEA send_nmea = NULL;
+
+static inline void generate_nmea(void) {
+	/* generate new NMEA and VTG sentences based on
+	 * our corrected position and heading
+	 */
+
+	#if 0
+	char *vtg;
+
+	double lat_min, lon_min;
+	int lat1, lat2, lon1, lon2;
+
+	lat_min = fabs(gps_latitude - int(gps_latitude)) * 60;
+	lat1 = abs(int(gps_latitude)) * 100 + int(lat_min);
+	lat2 = int((lat_min - int(lat_min)) * 10000000);
+
+	lon_min = fabs(gps_longitude - int(gps_longitude)) * 60;
+	lon1 = abs(int(gps_longitude)) * 100 + int(lon_min);
+	lon2 = int((lon_min - int(lon_min)) * 10000000);
+
+	//GGA
+	snprintf(nmea_buffer,NMEA_BUFFER_SIZE,
+	         "$GNGGA,%s,%d.%d,%s,%d.%d,%s,%d,%s,%s,%.2f,M,%s,M,%s,0000",
+	         fix_time, 
+		 lat1, lat2, (gps_latitude<0 ? "S" : "N"),
+		 lon1, lon2, (gps_longitude<0 ? "W" : "E"),
+		 fix_quality,
+		 num_sats,
+		 hdop,
+		 gps_altitude,
+		 geoid,
+		 dgps_age);
+
+	//add checksum and CRLF
+	compute_nmea_checksum(nmea_buffer, checksum);
+	strncat(nmea_buffer,checksum, NMEA_BUFFER_SIZE);
+	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
+
+	//VTG
+	vtg = nmea_buffer + strnlen(nmea_buffer, NMEA_BUFFER_SIZE);
+	snprintf(vtg,NMEA_BUFFER_SIZE - strnlen(nmea_buffer, NMEA_BUFFER_SIZE),
+	         "$GNVTG,%.3f,T,,M,%s,N,%.2f,K,D",
+	         gps_heading,
+		 vtg_speed_knots, //knots
+		 gps_speed); //kph
+
+	//add checksum and CRLF
+	compute_nmea_checksum(vtg, checksum);
+	strncat(nmea_buffer,checksum, NMEA_BUFFER_SIZE);
+	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
+
+	//Send it
+	send_nmea(nmea_buffer,strnlen(nmea_buffer, NMEA_BUFFER_SIZE));
+	#endif
+}
+
 
 void setup_psti(FixHandler fix_handler){
 	got_psti_fix = fix_handler;
@@ -144,7 +187,7 @@ void psti_process(char c) {
 
 		//slow but faster than parsing GGA
 		double speed = sqrt(north_speed * north_speed + east_speed * east_speed);
-		autosteer_speed = speed * 3.6 / 1000.0; //convert to km/h
+		gps_speed = speed * 3.6 / 1000.0; //convert to km/h
 
 
 		if (got_pos && got_attitude) {
@@ -156,14 +199,14 @@ void psti_process(char c) {
 
 			float heading_delta;
 
-			autosteer_datetime = ((float)seconds + hundredths /100.0) * 4;
-			autosteer_datetime |= ((uint64_t)minute << 8);
-			autosteer_datetime |= ((uint64_t)hour << 16);
-			autosteer_datetime |= ((uint64_t)month << 24);
-			autosteer_datetime |= (((uint64_t)day * 4) << 32);
-			autosteer_datetime |= (((uint64_t)year - 1985) << 40);
-			autosteer_datetime |= ((uint64_t)125 << 48); //zero
-			autosteer_datetime |= ((uint64_t)125 << 56); //zero
+			gps_j1939_datetime = ((float)seconds + hundredths /100.0) * 4;
+			gps_j1939_datetime |= ((uint64_t)minute << 8);
+			gps_j1939_datetime |= ((uint64_t)hour << 16);
+			gps_j1939_datetime |= ((uint64_t)month << 24);
+			gps_j1939_datetime |= (((uint64_t)day * 4) << 32);
+			gps_j1939_datetime |= (((uint64_t)year - 1985) << 40);
+			gps_j1939_datetime |= ((uint64_t)125 << 48); //zero
+			gps_j1939_datetime |= ((uint64_t)125 << 56); //zero
 
 			got_pos = false;
 			got_attitude = false; //clear for next one
@@ -173,7 +216,20 @@ void psti_process(char c) {
 			autosteer_orig_altitude = altitude; 
 			//unless both receives have RTK or Float, we can't really do TCM
 			//so this will only return R or F if STI,036 shows R or F.
-			autosteer_mode = sti.getMode();
+			char autosteer_mode = sti.getMode();
+			switch(autosteer_mode) {
+			case 'R':
+				gps_mode = 4;
+				break;
+			case 'F':
+				gps_mode = 5;
+				break;
+			case 'D':
+				gps_mode = 2;
+				break;
+			default:
+				gps_mode = 0;
+			}
 
 			if (fix30_mode != 'N' && sti.getMode() != 'R' && sti.getMode() != 'F') {
 				//low-quality GPS fix, no STI,036 information
@@ -186,8 +242,8 @@ void psti_process(char c) {
 				heading = atan2(-east_speed, north_speed) * 180.0 / PI;
 				if (heading <0) heading += 360;
 
-				autosteer_heading = heading;
-				autosteer_roll = 0;
+				gps_heading = heading;
+				gps_roll = 0;
 
 				heading_delta = heading - last_heading;
 				if (heading_delta > 180) heading_delta -= 360; //yawing to the left across 0
@@ -197,16 +253,16 @@ void psti_process(char c) {
 				//TODO make work for different message rates other than 5 Hz
 				yaw_rate = heading_delta / 0.2;  //degrees/second
 				//yaw_rate = yawrate_filter.filter(yaw_rate);
-				autosteer_yawrate = yaw_rate;
+				gps_yawrate = yaw_rate;
 
 				//account for distance from right antenna to center of tractor
 				center_offset = cos(roll * haversine::toRadians) * antenna_right;
 				haversine::move_distance_bearing(latitude, longitude, (double)heading90,
 				                                 center_offset);
 
-				autosteer_altitude = altitude - antenna_height;
-				autosteer_lat = latitude;
-				autosteer_lon = longitude;
+				gps_altitude = altitude - antenna_height;
+				gps_latitude = latitude;
+				gps_longitude = longitude;
 
 				if(got_psti_fix)
 					got_psti_fix();
@@ -221,7 +277,7 @@ void psti_process(char c) {
 				//TODO make work for different message rates other than 5 Hz
 				yaw_rate = heading_delta / 0.2;  //degrees/second
 				//yaw_rate = yawrate_filter.filter(yaw_rate);
-				autosteer_yawrate = yaw_rate;
+				gps_yawrate = yaw_rate;
 
 				//offset from the tilt of the tractor
 				tilt_offset = sin(roll * haversine::toRadians) * antenna_height;
@@ -238,7 +294,7 @@ void psti_process(char c) {
 				                                 tilt_offset + center_offset);
 
 				altitude -= alt_offset1 - alt_offset2; //TODO: check me
-				autosteer_altitude = altitude;
+				gps_altitude = altitude;
 
 				if (antenna_forward) {
 					//if gps is forward of axle, translate the position rearward
@@ -246,10 +302,10 @@ void psti_process(char c) {
 					                                 -antenna_forward);
 				}
 
-				autosteer_lat = latitude;
-				autosteer_lon = longitude;
-				autosteer_roll = roll;
-				autosteer_heading = heading;
+				gps_latitude = latitude;
+				gps_longitude = longitude;
+				gps_roll = roll;
+				gps_heading = heading;
 				
 				if(got_psti_fix)
 					got_psti_fix();
