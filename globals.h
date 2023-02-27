@@ -78,6 +78,7 @@ extern double gps_orig_longitude;
 extern double gps_heading;
 extern double gps_speed;
 extern double gps_altitude;
+extern double gps_orig_altitude;
 extern uint64_t gps_j1939_datetime;
 extern float gps_yawrate; //comes from IMU but through a GPS implementation
 extern float gps_roll; //comes from IMU, but through a GPS implementation

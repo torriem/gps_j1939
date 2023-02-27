@@ -230,6 +230,8 @@ static inline void process_imu(void) {
 					 tilt_offset + center_offset);
 
 	//Adjust altitude
+	gps_orig_altitude = gps_altitude;
+
 	gps_altitude -= cos(roll_rad) * antenna_height +
 			      sin(roll_rad) * center_offset;
 
