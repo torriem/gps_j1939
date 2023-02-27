@@ -20,7 +20,10 @@
 #include "nmeaimu.h"
 #include "shared_nmea_buffer.h"
 #include "nmea_checksum.h"
+#ifndef TEENSY
 #include <BluetoothSerial.h> //ESP32 only
+#endif
+#include "bnorvc.h"
 
 uint8_t serial_buffer[1024]; //overkill hopefully
 
@@ -64,6 +67,8 @@ BluetoothSerial SerialBT;
 HardwareSerial SerialIMU(1);
 HardwareSerial SerialGPS(2);
 
+BNORVC bno_rvc;
+
 
 void send_serial_data(char *buffer, int buffer_len) {
 	/* send generated NMEA messages to RS232 */
@@ -106,7 +111,7 @@ void send_config(void) {
 		 (imu_use_pitch ? "P" : "R"),
 		 (imu_reverse ? "R" : "F"),
 		 (imu_heading_offset_set ? imu_heading_offset : 400),
-		 get_imu_lookback());
+		 imu_lookback);
 
 	compute_nmea_checksum(nmea_buffer, checksum);
 	strncat(nmea_buffer,checksum, NMEA_BUFFER_SIZE);
@@ -123,6 +128,8 @@ void setup()
 	SerialIMU.begin(115200,SERIAL_8N1,27,16);
 	SerialBT.begin("rovertest");
 
+	bno_rvc.set_uart(&SerialIMU);
+
 	delay(2000);
 	Serial.println("gps_j1939 on ESP32");
 	autosteer_source = 0;
@@ -136,7 +143,7 @@ void setup()
 	case GPS_NMEA_BNO:
 		//TODO: IMU serial port
 		//setup_nmea_parser(send_gps_messages, (Stream *) NULL);
-		setup_nmea_parser(NULL, &SerialIMU, send_serial_data);
+		setup_nmea_parser(NULL, &bno_rvc, send_serial_data);
 		break;
 	}
 }
@@ -192,13 +199,15 @@ void loop()
 		}
 
 		//process bluetooth ntrip
+#               ifndef TEENSY		
 		while (SerialBT.available())
 		{
 			SerialGPS.write(SerialBT.read());
 		}
+#endif
 
-		//process IMU data if equipped and configured
-		read_imu();
+		//process IMU data
+		bno_rvc.process_data();
 
 		//now process serial bytes that have accumulated
 		while(SerialGPS.available()) {
