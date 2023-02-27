@@ -129,19 +129,15 @@ static inline void process_imu(void) {
 	double tilt_offset;
 	double center_offset;
 	double new_offset;
-	float roll_direction;
 
 	got_gga = false;
 	got_vtg = false;
 
-	if (imu_reverse) 
-		roll_direction = -1;
-	else 
-		roll_direction = 1;
-
 	//look at older IMU position
 	if (imu)
 		yaw = imu->get_yaw(imu_lookback);
+	else
+		yaw = 400;
 
 	gps_orig_latitude = gps_latitude;
 	gps_orig_longitude = gps_longitude;
