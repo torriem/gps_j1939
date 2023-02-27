@@ -3,7 +3,7 @@
 
 class IMUBase {
 public:
-	IMUBase();
+	IMUBase() { }
 
 	virtual void process_data(void) = 0;
 	virtual float get_roll(int lookback_ms) = 0;

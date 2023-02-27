@@ -1,9 +1,15 @@
 #include "bnorvc.h"
 #include "globals.h"
 
-int a;
+BNORVC::BNORVC() {
+	current_rvc = 0;
+	for (int i=0; i < BNO_MAX_LOOKBACK; i++) {
+		rvc_data[i].yaw = 400; //mark invalid
+	}
 
-BNORVC::BNORVC(Stream *uart) {
+}
+
+void BNORVC::set_uart(Stream *uart) {
 	current_rvc = 0;
 	for (int i=0; i < BNO_MAX_LOOKBACK; i++) {
 		rvc_data[i].yaw = 400; //mark invalid

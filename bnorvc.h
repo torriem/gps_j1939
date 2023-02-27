@@ -19,8 +19,9 @@ protected:
 	elapsedMillis imu_timer;
 
 public:
-	BNORVC(Stream *uart);
+	BNORVC();
 
+	void set_uart(Stream *the_uart);
 	void process_data(void);
 	float get_roll (int lookback_ms);
 	float get_pitch (int lookback_ms);
