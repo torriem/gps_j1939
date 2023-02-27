@@ -35,6 +35,7 @@ double gps_orig_longitude;
 double gps_heading;
 double gps_speed;
 double gps_altitude;
+double gps_orig_altitude;
 uint64_t gps_j1939_datetime;
 float gps_yawrate; //comes from IMU but through a GPS implementation
 float gps_roll; //comes from IMU, but through a GPS implementation
