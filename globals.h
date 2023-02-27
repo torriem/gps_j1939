@@ -73,6 +73,8 @@ extern float imu_last_roll;
 
 extern double gps_latitude;
 extern double gps_longitude;
+extern double gps_orig_latitude;
+extern double gps_orig_longitude;
 extern double gps_heading;
 extern double gps_speed;
 extern double gps_altitude;
@@ -80,6 +82,13 @@ extern uint64_t gps_j1939_datetime;
 extern float gps_yawrate; //comes from IMU but through a GPS implementation
 extern float gps_roll; //comes from IMU, but through a GPS implementation
 extern int gps_mode; //same as GGA's fix type field
+
+extern char gps_fix_time[12]; //HHMMSS.ss 
+extern char gps_fix_date[12]; //DDMMYY 
+extern float gps_dgps_age;
+extern int gps_num_sats;
+extern float gps_hdop;
+extern float gps_geoid;
 
 //generate corrected sentences or pass through from GPS
 extern bool gps_generate_gga;

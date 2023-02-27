@@ -148,6 +148,9 @@ static inline void process_imu(void) {
 	old_rvc = (MAX_LOOKBACK - imu_lookback / 10 + current_rvc) % MAX_LOOKBACK;
 	yaw = rvc_data[old_rvc].yaw;
 
+	gps_orig_latitude = gps_latitude;
+	gps_orig_longitude = gps_longitude;
+
 	if (use_imu && yaw < 400) {
 		//if we have a valid IMU reading, calculate the IMU
 		//heading offset and do roll compensation.
