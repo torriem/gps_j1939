@@ -1,6 +1,5 @@
 #include "nmeaimu.h"
 #include "globals.h"
-#include <Adafruit_BNO08x_RVC.h>
 #include <elapsedMillis.h>
 #include "NMEAParser.h"
 #include "haversine.h"
@@ -9,6 +8,7 @@
 #include <math.h>
 #include "shared_nmea_buffer.h"
 #include "nmea_checksum.h"
+#include "imubase.h"
 	
 extern double autosteer_orig_lat;
 extern double autosteer_orig_lon;
@@ -30,11 +30,7 @@ static SendNMEA send_nmea = NULL;
 
 static NMEAParser<2> parser;
 
-//Use adafruit's library or AOG's modified library?
-#define MAX_LOOKBACK 20
-static Adafruit_BNO08x_RVC rvc;
-static BNO08x_RVC_Data rvc_data[MAX_LOOKBACK];
-static int16_t current_rvc = 0;
+IMUBase *imu = NULL; //IMU to use
 static bool  use_imu = false;
 
 static bool got_gga = false;
@@ -133,7 +129,6 @@ static inline void process_imu(void) {
 	double tilt_offset;
 	double center_offset;
 	double new_offset;
-	uint16_t old_rvc;
 	float roll_direction;
 
 	got_gga = false;
@@ -145,8 +140,8 @@ static inline void process_imu(void) {
 		roll_direction = 1;
 
 	//look at older IMU position
-	old_rvc = (MAX_LOOKBACK - imu_lookback / 10 + current_rvc) % MAX_LOOKBACK;
-	yaw = rvc_data[old_rvc].yaw;
+	if (imu)
+		yaw = imu->get_yaw(imu_lookback);
 
 	gps_orig_latitude = gps_latitude;
 	gps_orig_longitude = gps_longitude;
@@ -155,13 +150,7 @@ static inline void process_imu(void) {
 		//if we have a valid IMU reading, calculate the IMU
 		//heading offset and do roll compensation.
 		
-		if (imu_use_pitch) {
-			gps_roll = rvc_data[old_rvc].pitch * roll_direction;
-		} else {
-			gps_roll = rvc_data[old_rvc].roll * roll_direction;
-		}
-
-		gps_roll += imu_roll_offset;
+		gps_roll = imu->get_roll(imu_lookback); //already offset
 
 		if(!imu_heading_offset_set && gps_speed <= MIN_VTG_SPEED) {
 			//calculate heading based on fix to fix
@@ -386,21 +375,10 @@ void error_handler() {
 
 }
 
-int16_t get_imu_lookback(void) {
-	return imu_lookback;
-	//return (MAX_LOOKBACK - imu_lookback) * 10;
-}
-
-void set_imu_lookback(int16_t new_lookback_ms) {
-	imu_lookback = new_lookback_ms;
-	//if (new_lookback_ms >0 and new_lookback_ms <= (MAX_LOOKBACK * 10)) {
-	//	imu_lookback = MAX_LOOKBACK - new_lookback_ms / 10;
-	//}
-}
 
 //TODO: pass in handler to call when we've got a new position and
 //need to send it over CAN.
-void setup_nmea_parser(FixHandler fix_handler, Stream *imu_stream = NULL, SendNMEA send_nmea_handler = NULL) {
+void setup_nmea_parser(FixHandler fix_handler, IMUBase *the_imu = NULL, SendNMEA send_nmea_handler = NULL) {
 	parser.setErrorHandler(error_handler);
 	parser.addHandler("G-GGA", GGA_handler);
 	parser.addHandler("G-VTG", VTG_handler);
@@ -409,16 +387,10 @@ void setup_nmea_parser(FixHandler fix_handler, Stream *imu_stream = NULL, SendNM
 	send_nmea = send_nmea_handler;
 
 	imu_heading_offset_set = false;
-
-	//zero out imu receive buffers
-	//memset(rvc_data,0,sizeof(BNO08x_RVC_Data) * MAX_LOOKBACK);
-	for (int i=0; i < MAX_LOOKBACK ; i++) {
-		rvc_data[i].yaw = 400; //mark slot as invalid
-	}
+	imu = the_imu;
 
 	//initialize our timeout counters
 	nmea_timer = 0;
-	imu_timer = 0;
 	rate_timer = 0;
 
 	last_lat = 400;
@@ -426,27 +398,11 @@ void setup_nmea_parser(FixHandler fix_handler, Stream *imu_stream = NULL, SendNM
 	buf[2] = 0;
 
 
-	if (imu_stream) {
-		rvc.begin(imu_stream);
+	if (imu) {
 		use_imu = true;
 	}
 }
 
-void read_imu() {
-	if (use_imu) {
-		if(rvc.read(&rvc_data[current_rvc]) ) {
-			current_rvc = (current_rvc + 1) % MAX_LOOKBACK;
-			imu_timer = 0;
-		} else if (imu_timer > 12) {
-			//if 12 ms has elapsed, IMU must have gone silent
-			imu_timer = 0;
-			rvc_data[current_rvc].yaw = 400; //mark invalid
-			current_rvc = (current_rvc + 1) % MAX_LOOKBACK;
-		}
-	}
-}
-
 void nmea_process(char c) {
-	read_imu();
 	parser << c;
 }
