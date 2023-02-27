@@ -39,10 +39,11 @@ float BNORVC::get_roll(int lookback_ms) {
 
 	if (rvc_data[old_rvc].yaw < 400) {
 		if(imu_use_pitch) {
-			return (rvc_data[old_rvc].pitch + imu_roll_offset) * scale;
+			imu_last_roll = (rvc_data[old_rvc].pitch + imu_roll_offset) * scale;
 		} else {
-			return (rvc_data[old_rvc].roll + imu_roll_offset) * scale;
+			imu_last_roll = (rvc_data[old_rvc].roll + imu_roll_offset) * scale;
 		}
+		return imu_last_roll;
 	} else {
 		return 400;
 	}
