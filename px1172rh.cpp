@@ -7,10 +7,6 @@
 #include "SimpleKalmanFilter.h"
 #include "math.h"
 	
-extern double autosteer_orig_lat;
-extern double autosteer_orig_lon;
-extern double autosteer_orig_altitude;
-
 static uint16_t year=0; 
 static uint8_t month=0, day=0;
 static uint8_t hour=0, minute=0, seconds=0, hundredths=0;
@@ -211,9 +207,9 @@ void psti_process(char c) {
 			got_pos = false;
 			got_attitude = false; //clear for next one
 
-			autosteer_orig_lat = latitude;
-			autosteer_orig_lon = longitude;
-			autosteer_orig_altitude = altitude; 
+			gps_orig_latitude = latitude;
+			gps_orig_latitude = longitude;
+			gps_orig_altitude = altitude; 
 			//unless both receives have RTK or Float, we can't really do TCM
 			//so this will only return R or F if STI,036 shows R or F.
 			char autosteer_mode = sti.getMode();
