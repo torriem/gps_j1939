@@ -22,8 +22,12 @@
 #include "nmea_checksum.h"
 #ifndef TEENSY
 #include <BluetoothSerial.h> //ESP32 only
+#include <elapsedMillis.h>
 #endif
 #include "bnorvc.h"
+#include "serial_config.h"
+#include "nmea_gga.h"
+#include "nmea_vtg.h"
 
 uint8_t serial_buffer[1024]; //overkill hopefully
 
@@ -69,15 +73,44 @@ HardwareSerial SerialGPS(2);
 
 BNORVC bno_rvc;
 
+static int message_count = 0;
+
+void on_new_position(void) {
+	elapsedMillis timer = 0;
+
+	nmea_gga.generate();
+	nmea_gga_uncorrected.generate();
+	nmea_vtg.generate();
+
+	//send to CAN bus
+	bluetooth_nmea.send_position();
+	serial1_nmea.send_position();
+
+	message_count ++;
+	if (message_count == 5) {
+		//every 5 message sets, send the configuration
+		//messages.
+		message_count = 0;
+		serial_config::send_nmea();
+
+		//send imu config
+		//send gps config
+	}
+	//TODO: why is it so slow when the config strings are printed to 
+	//bluetooth?
+	//Serial.println(timer);
+
+}
 
 void send_serial_data(char *buffer, int buffer_len) {
 	/* send generated NMEA messages to RS232 */
 	//TODO
 	//rs232.write(buffer,buffer_len);
-	Serial.write((uint8_t *)buffer,buffer_len);
+	//Serial.write((uint8_t *)buffer,buffer_len);
 
 	// and send to bluetooth as well
-	SerialBT.write((uint8_t *)buffer, buffer_len);
+	//SerialBT.write((uint8_t *)buffer, buffer_len);
+	on_new_position();
 }
 
 void send_config(void) {
@@ -117,18 +150,41 @@ void send_config(void) {
 	strncat(nmea_buffer,checksum, NMEA_BUFFER_SIZE);
 	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
 
-	Serial.write((uint8_t *)nmea_buffer,strnlen(nmea_buffer, NMEA_BUFFER_SIZE));
-	SerialBT.write((uint8_t *)nmea_buffer,strnlen(nmea_buffer, NMEA_BUFFER_SIZE));
+	//Serial.write((uint8_t *)nmea_buffer,strnlen(nmea_buffer, NMEA_BUFFER_SIZE));
+	//SerialBT.write((uint8_t *)nmea_buffer,strnlen(nmea_buffer, NMEA_BUFFER_SIZE));
 }
 
 void setup()
 {
 	Serial.begin(115200);
+
+	//TODO: store serial input baud rates in flash
+	//allow them to be changed.
 	SerialGPS.begin(460800,SERIAL_8N1,25,14);
 	SerialIMU.begin(115200,SERIAL_8N1,27,16);
+
+	//TODO: store bt name and output serial baud rates
+	//in flash, and allow them to be changed.
 	SerialBT.begin("rovertest");
 
+	//set BNO to read data from SerialIMU
 	bno_rvc.set_uart(&SerialIMU);
+
+	//set up NMEA output streams
+	bluetooth_nmea.set_stream(&SerialBT);
+	serial1_nmea.set_stream(&Serial);
+
+	bluetooth_nmea.send_gga(true);
+	bluetooth_nmea.send_vtg(true);
+	bluetooth_nmea.send_cfg(true);
+	bluetooth_nmea.set_corrected(true);
+
+	serial1_nmea.send_gga(true);
+	serial1_nmea.send_vtg(true);
+	serial1_nmea.send_cfg(true);
+	serial1_nmea.set_corrected(true);
+
+	serial_config::generate_nmea();
 
 	delay(2000);
 	Serial.println("gps_j1939 on ESP32");
@@ -143,7 +199,7 @@ void setup()
 	case GPS_NMEA_BNO:
 		//TODO: IMU serial port
 		//setup_nmea_parser(send_gps_messages, (Stream *) NULL);
-		setup_nmea_parser(NULL, &bno_rvc, send_serial_data);
+		setup_nmea_parser(NULL, &bno_rvc, on_new_position);
 		break;
 	}
 }
