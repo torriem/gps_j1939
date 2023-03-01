@@ -26,7 +26,7 @@ static KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
 static KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
 
 static FixHandler got_fix = NULL;
-static SendNMEA send_nmea = NULL;
+static FixHandler new_gps_position = NULL;
 
 static NMEAParser<2> parser;
 
@@ -48,17 +48,11 @@ static float last_heading = 0;
 
 //places to store NMEA fields
 // GGA
-static char fix_time[12];
 static char latitude[15];
 static char lat_ns[3];
 static char longitude[15];
 static char lon_ew[3];
-static int fix_quality;
-static char num_sats[4];
-static char hdop[5];
 static char altitude[12];
-static char dgps_age[10];
-static char geoid[10];
 
 // VTG
 static char vtg_heading[12] = { };
@@ -66,60 +60,6 @@ static char vtg_speed_knots[10] = { };
 static float vtg_head;
 
 static char checksum[5]; //* plus 2 byte checksum plus 2 CRLF bytes
-
-static inline void generate_nmea(void) {
-	/* generate new NMEA and VTG sentences based on
-	 * our corrected position and heading
-	 */
-
-	char *vtg;
-
-	double lat_min, lon_min;
-	int lat1, lat2, lon1, lon2;
-
-	lat_min = fabs(gps_latitude - int(gps_latitude)) * 60;
-	lat1 = abs(int(gps_latitude)) * 100 + int(lat_min);
-	lat2 = int((lat_min - int(lat_min)) * 10000000);
-
-	lon_min = fabs(gps_longitude - int(gps_longitude)) * 60;
-	lon1 = abs(int(gps_longitude)) * 100 + int(lon_min);
-	lon2 = int((lon_min - int(lon_min)) * 10000000);
-
-	//GGA
-	snprintf(nmea_buffer,NMEA_BUFFER_SIZE,
-	         "$GNGGA,%s,%d.%d,%s,%d.%d,%s,%d,%s,%s,%.2f,M,%s,M,%s,0000",
-	         fix_time, 
-		 lat1, lat2, (gps_latitude<0 ? "S" : "N"),
-		 lon1, lon2, (gps_longitude<0 ? "W" : "E"),
-		 fix_quality,
-		 num_sats,
-		 hdop,
-		 gps_altitude,
-		 geoid,
-		 dgps_age);
-
-	//add checksum and CRLF
-	compute_nmea_checksum(nmea_buffer, checksum);
-	strncat(nmea_buffer,checksum, NMEA_BUFFER_SIZE);
-	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
-
-	//VTG
-	vtg = nmea_buffer + strnlen(nmea_buffer, NMEA_BUFFER_SIZE);
-	snprintf(vtg,NMEA_BUFFER_SIZE - strnlen(nmea_buffer, NMEA_BUFFER_SIZE),
-	         "$GNVTG,%.3f,T,,M,%s,N,%.2f,K,D",
-	         gps_heading,
-		 vtg_speed_knots, //knots
-		 gps_speed); //kph
-
-	//add checksum and CRLF
-	compute_nmea_checksum(vtg, checksum);
-	strncat(nmea_buffer,checksum, NMEA_BUFFER_SIZE);
-	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
-
-	//Send it
-	send_nmea(nmea_buffer,strnlen(nmea_buffer, NMEA_BUFFER_SIZE));
-
-}
 
 static inline void process_imu(void) {
 	float heading_delta;
@@ -249,7 +189,7 @@ static inline void process_imu(void) {
 	rate_timer = 0;  //should approximate time between messages
 
 	if(got_fix) got_fix();
-	generate_nmea();
+	new_gps_position();
 }
 
 void GGA_handler() {
@@ -264,24 +204,24 @@ void GGA_handler() {
 
 	//TODO: snag copies of unmodified fields for re-sending GGA later
 	
-	parser.getArg(0,fix_time);
+	parser.getArg(0,gps_fix_time);
 	uint8_t hours, minutes, seconds, hundredths;
 
-	buf[0] = fix_time[0];
-	buf[1] = fix_time[1];
+	buf[0] = gps_fix_time[0];
+	buf[1] = gps_fix_time[1];
 	hours = atoi(buf);
 
-	buf[0] = fix_time[2];
-	buf[1] = fix_time[3];
+	buf[0] = gps_fix_time[2];
+	buf[1] = gps_fix_time[3];
 	minutes = atoi(buf);
 
-	buf[0] = fix_time[4];
-	buf[1] = fix_time[5];
+	buf[0] = gps_fix_time[4];
+	buf[1] = gps_fix_time[5];
 	seconds = atoi(buf);
 
-	if(fix_time[6] == '.' && fix_time[7] != 0 && fix_time[8] != 0) {
-		buf[0] = fix_time[7];
-		buf[1] = fix_time[8];
+	if(gps_fix_time[6] == '.' && gps_fix_time[7] != 0 && gps_fix_time[8] != 0) {
+		buf[0] = gps_fix_time[7];
+		buf[1] = gps_fix_time[8];
 		hundredths = atoi(buf);
 	} else {
 		hundredths = 0;
@@ -313,8 +253,7 @@ void GGA_handler() {
 	if (lon_ew[0] == 'W')
 		gps_longitude = -gps_longitude;
 
-	parser.getArg(5, fix_quality);
-	gps_mode = fix_quality;
+	parser.getArg(5, gps_mode);
 
 	if (gps_mode == 0) {
 		//No GPS position at all, so ignore
@@ -326,10 +265,10 @@ void GGA_handler() {
 	parser.getArg(8, altitude);
 	gps_altitude = atof(altitude);
 
-	parser.getArg(6, num_sats);
-	parser.getArg(7, hdop);
-	parser.getArg(10, geoid);
-	parser.getArg(12, dgps_age);
+	parser.getArg(6, gps_num_sats);
+	parser.getArg(7, gps_hdop);
+	parser.getArg(10, gps_geoid);
+	parser.getArg(12, gps_dgps_age);
 
 	if (got_vtg) {
 		//we've got our pair now, we can do
@@ -376,13 +315,13 @@ void error_handler() {
 
 //TODO: pass in handler to call when we've got a new position and
 //need to send it over CAN.
-void setup_nmea_parser(FixHandler fix_handler, IMUBase *the_imu = NULL, SendNMEA send_nmea_handler = NULL) {
+void setup_nmea_parser(FixHandler fix_handler, IMUBase *the_imu = NULL, FixHandler new_gps_pos_handler = NULL) {
 	parser.setErrorHandler(error_handler);
 	parser.addHandler("G-GGA", GGA_handler);
 	parser.addHandler("G-VTG", VTG_handler);
 
 	got_fix = fix_handler;
-	send_nmea = send_nmea_handler;
+	new_gps_position = new_gps_pos_handler;
 
 	imu_heading_offset_set = false;
 	imu = the_imu;

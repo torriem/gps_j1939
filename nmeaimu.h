@@ -14,7 +14,7 @@
 //TODO: separate out the IMU reader into its own
 //      module so we can work the WT901c later
 
-void setup_nmea_parser(FixHandler fix_handler, IMUBase *the_imu, SendNMEA send_nmea_handler);
+void setup_nmea_parser(FixHandler fix_handler, IMUBase *the_imu, FixHandler new_gps_position_handler);
 void nmea_process(char c);
 
 #endif

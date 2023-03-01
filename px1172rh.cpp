@@ -31,7 +31,8 @@ static KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
 static KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
 
 static FixHandler got_psti_fix = NULL;
-static SendNMEA send_nmea = NULL;
+//TODO: rewrite this to use other NMEA parser
+
 
 static inline void generate_nmea(void) {
 	/* generate new NMEA and VTG sentences based on
