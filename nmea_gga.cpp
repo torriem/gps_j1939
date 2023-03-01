@@ -3,14 +3,17 @@
 #include <math.h>
 #include "globals.h"
 
-NMEAGGA nmea_gga();
-NMEAGGA nmea_gga_uncorrected();
+NMEAGGA nmea_gga = NMEAGGA(true);
+NMEAGGA nmea_gga_uncorrected = NMEAGGA(false);
 
 void NMEAGGA::generate(void) {
 	char checksum[6];
+	char dgps_age[6];
 
 	double lat, lon, lat_min, lon_min;
 	int lat1, lat2, lon1, lon2;
+
+	snprintf(dgps_age,6,"%.2f", gps_dgps_age);
 
 	if (use_corrected) {
 		lat = gps_latitude;
@@ -30,7 +33,7 @@ void NMEAGGA::generate(void) {
 
 	//GGA
 	snprintf(this->nmea_buffer,GNB_NMEA_BUFFER_SIZE,
-	         "$GNGGA,%s,%d.%d,%s,%d.%d,%s,%d,%02d,%.2f,%.2f,M,%.1f,M,%.1f,0000",
+	         "$GNGGA,%s,%d.%d,%s,%d.%d,%s,%d,%02d,%.2f,%.2f,M,%.1f,M,%s,0000",
 	         gps_fix_time, 
 		 lat1, lat2, (lat<0 ? "S" : "N"),
 		 lon1, lon2, (lon<0 ? "W" : "E"),
@@ -39,7 +42,7 @@ void NMEAGGA::generate(void) {
 		 gps_hdop,
 		 gps_altitude,
 		 gps_geoid,
-		 gps_dgps_age);
+		 (gps_dgps_age > 0 ? dgps_age : ""));
 
 	//add checksum and CRLF
 	compute_nmea_checksum(this->nmea_buffer, checksum);

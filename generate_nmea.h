@@ -14,7 +14,7 @@ public:
 	bool nmea_valid;
 
 public:
-	GenerateNMEABase(bool imu_corrected = false) { nmea_valid = false; use_corrected = use_corrected;}
+	GenerateNMEABase(bool imu_corrected = false) { nmea_valid = false; use_corrected = imu_corrected;}
 	const char *get_nmea() {
 		return this->nmea_buffer;
 	}

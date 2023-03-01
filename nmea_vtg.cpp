@@ -3,7 +3,7 @@
 #include <math.h>
 #include "globals.h"
 
-NMEAVTG nmea_vtg();
+NMEAVTG nmea_vtg = NMEAVTG(true);
 
 void NMEAVTG::generate(void) {
 	char checksum[6];
