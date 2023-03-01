@@ -102,58 +102,6 @@ void on_new_position(void) {
 
 }
 
-void send_serial_data(char *buffer, int buffer_len) {
-	/* send generated NMEA messages to RS232 */
-	//TODO
-	//rs232.write(buffer,buffer_len);
-	//Serial.write((uint8_t *)buffer,buffer_len);
-
-	// and send to bluetooth as well
-	//SerialBT.write((uint8_t *)buffer, buffer_len);
-	on_new_position();
-}
-
-void send_config(void) {
-	/* send a proprietary NMEA string to relavant
-	   serial ports that contains the current
-	   configuration
-
-	   antenna height
-	   antenna lateral offset (positive is to the right)
-	   antenna forward of axle
-
-	   current roll
-	   virtual_source
-	   gps_source
-	   roll offset
-	   imu heading offset, if known
-	   imu lookback in ms
-	  */
-
-	char checksum[6];
-
-	snprintf(nmea_buffer, NMEA_BUFFER_SIZE,
-	         "$PTGPS,%.2f,%.2f,%.2f,%.2f,%d,%d,%.2f,%s,%s,%.2f,%d",
-		 antenna_height,
-		 antenna_right,
-		 antenna_forward,
-		 gps_roll,
-		 virtual_source,
-		 gps_source,
-		 imu_roll_offset,
-		 (imu_use_pitch ? "P" : "R"),
-		 (imu_reverse ? "R" : "F"),
-		 (imu_heading_offset_set ? imu_heading_offset : 400),
-		 imu_lookback);
-
-	compute_nmea_checksum(nmea_buffer, checksum);
-	strncat(nmea_buffer,checksum, NMEA_BUFFER_SIZE);
-	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
-
-	//Serial.write((uint8_t *)nmea_buffer,strnlen(nmea_buffer, NMEA_BUFFER_SIZE));
-	//SerialBT.write((uint8_t *)nmea_buffer,strnlen(nmea_buffer, NMEA_BUFFER_SIZE));
-}
-
 void setup()
 {
 	Serial.begin(115200);
@@ -208,7 +156,6 @@ void loop()
 {
 	char c;
 	
-	unsigned long last_time = millis();
 	unsigned long t;
 
 	// virtual position generators
@@ -226,12 +173,6 @@ void loop()
 
 	while(1) {
 		t = millis();
-
-		if (t - last_time > 1000) {
-			//once a second.
-			send_config();
-			last_time = t;
-		}
 
 		switch(virtual_source) {
 		case VIRTUAL_CIRCLE:
