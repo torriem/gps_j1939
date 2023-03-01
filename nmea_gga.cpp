@@ -13,7 +13,7 @@ void NMEAGGA::generate(void) {
 	double lat, lon, lat_min, lon_min;
 	int lat1, lat2, lon1, lon2;
 
-	snprintf(dgps_age,6,"%.2f", gps_dgps_age);
+	snprintf(dgps_age,6,"%.1f", gps_dgps_age);
 
 	if (use_corrected) {
 		lat = gps_latitude;

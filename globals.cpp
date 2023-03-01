@@ -53,7 +53,8 @@ float gps_geoid;
  */
 
 #if defined(ESP32)
-//These must be set up in the main program.
+//These must be configured in the main program with the appropriate
+//Serial device instances.
 SerialNMEA bluetooth_nmea = SerialNMEA(0,"Bluetooth",NULL);
 SerialNMEA serial1_nmea = SerialNMEA(1,"Serial1", NULL);
 //SerialNMEA serial2_nmea = SerialNMEA(2,"Serial2", NULL);
