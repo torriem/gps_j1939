@@ -48,8 +48,25 @@ int gps_num_sats;
 float gps_hdop;
 float gps_geoid;
 
+/*
+ * Serial NMEA outputs
+ */
+
+#if defined(ESP32)
+//These must be set up in the main program.
+SerialNMEA bluetooth_nmea = SerialNMEA(0,"Bluetooth",NULL);
+SerialNMEA serial1_nmea = SerialNMEA(1,"Serial1", NULL);
+//SerialNMEA serial2_nmea = SerialNMEA(2,"Serial2", NULL);
+//SerialNMEA serial3_nmea = SerialNMEA(3,"Serial3", NULL);
+#elif defined(TEENSY)
+SerialNMEA usbserial_nmea;
+#endif
+
+
 //generate corrected sentences or pass through from GPS
 bool gps_generate_gga;
 bool gps_generate_vtg;
 bool gps_generate_panda;
+
+
 
