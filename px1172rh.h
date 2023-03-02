@@ -3,8 +3,11 @@
 
 #include "fix_handler.h"
 
-void setup_psti(FixHandler fix_handler);
-void psti_process(char c);
+namespace px1172rh {
+	void setup(FixHandler fix_handler);
+	void set_on_fix(FixHandler fix_handler);
+	void process_byte(char c);
+}
 
 #endif
 

@@ -1,23 +1,22 @@
 #include "px1172rh.h"
 #include "globals.h"
 #include "shared_nmea_buffer.h"
+#include "NMEAParser.h"
 #include "stinmea.h"
 #include "haversine.h"
-#include "kfilter1.h"
-#include "SimpleKalmanFilter.h"
+#include "imubase.h"
+//#include "kfilter1.h"
+//#include "SimpleKalmanFilter.h"
+#include "conversions.h"
 #include "math.h"
+#include "whichteensy.h"
+#ifndef TEENSY
+#include <elapsedMillis.h>
+#endif
 	
-static uint16_t year=0; 
-static uint8_t month=0, day=0;
-static uint8_t hour=0, minute=0, seconds=0, hundredths=0;
-static double latitude=0;
-static double longitude=0;
-static double altitude=0;
-static double heading=0;
-static double heading90=0;
-static double roll=0;
-static uint8_t fix30_mode;
 static bool got_pos=false;
+
+static bool got_good_attitude = false;
 static bool got_attitude=false;
 
 static float last_heading = 0;
@@ -26,74 +25,264 @@ static uint32_t last_heading_time = 0;
 static char sti_nmea_buffer[160];
 static STINMEA sti(sti_nmea_buffer, sizeof(sti_nmea_buffer)); //handles PSTI
 
-static KFilter1 yawrate_filter(0.1, 1.0f, 0.0003f);
-static KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
-static KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
+static NMEAParser<1> parser;
 
-static FixHandler got_psti_fix = NULL;
-//TODO: rewrite this to use other NMEA parser
+char buf[3];
+static char latitude[15];
+static char lat_ns[3];
+static char longitude[15];
+static char lon_ew[3];
+static char altitude[12];
+
+static elapsedMillis rate_timer;
+static elapsedMillis nmea_timer;
 
 
-static inline void generate_nmea(void) {
-	/* generate new NMEA and VTG sentences based on
-	 * our corrected position and heading
-	 */
+//static KFilter1 yawrate_filter(0.1, 1.0f, 0.0003f);
+//static KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
+//static KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
 
-	#if 0
-	char *vtg;
+static FixHandler got_fix = NULL;
+static IMUBase *imu = NULL;
 
-	double lat_min, lon_min;
-	int lat1, lat2, lon1, lon2;
 
-	lat_min = fabs(gps_latitude - int(gps_latitude)) * 60;
-	lat1 = abs(int(gps_latitude)) * 100 + int(lat_min);
-	lat2 = int((lat_min - int(lat_min)) * 10000000);
+static inline void process_imu(void) {
+	float heading_delta;
+	double roll_rad;
+	double heading90;
+	double tilt_offset;
+	double center_offset;
 
-	lon_min = fabs(gps_longitude - int(gps_longitude)) * 60;
-	lon1 = abs(int(gps_longitude)) * 100 + int(lon_min);
-	lon2 = int((lon_min - int(lon_min)) * 10000000);
+	//Perform terrain compensation.  If an IMU is present, we can combine
+	//the IMU roll reading with the dual GPS roll reading perhaps.
+	
+	//do roll compensation and adjust lat and lon for the 
+	//offsets of the GPS unit
 
-	//GGA
-	snprintf(nmea_buffer,NMEA_BUFFER_SIZE,
-	         "$GNGGA,%s,%d.%d,%s,%d.%d,%s,%d,%s,%s,%.2f,M,%s,M,%s,0000",
-	         fix_time, 
-		 lat1, lat2, (gps_latitude<0 ? "S" : "N"),
-		 lon1, lon2, (gps_longitude<0 ? "W" : "E"),
-		 fix_quality,
-		 num_sats,
-		 hdop,
-		 gps_altitude,
-		 geoid,
-		 dgps_age);
+	roll_rad = RADIANS(gps_roll);
 
-	//add checksum and CRLF
-	compute_nmea_checksum(nmea_buffer, checksum);
-	strncat(nmea_buffer,checksum, NMEA_BUFFER_SIZE);
-	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
+	heading90 = gps_heading - 90;
+	if (heading90 <0) heading90 += 360;
 
-	//VTG
-	vtg = nmea_buffer + strnlen(nmea_buffer, NMEA_BUFFER_SIZE);
-	snprintf(vtg,NMEA_BUFFER_SIZE - strnlen(nmea_buffer, NMEA_BUFFER_SIZE),
-	         "$GNVTG,%.3f,T,,M,%s,N,%.2f,K,D",
-	         gps_heading,
-		 vtg_speed_knots, //knots
-		 gps_speed); //kph
+	//lateral offset from tilt of tractor
+	tilt_offset = sin(roll_rad) * antenna_height;
+	//lateral offset from antenna to center of tractor
+	center_offset = cos(roll_rad) * antenna_right;
 
-	//add checksum and CRLF
-	compute_nmea_checksum(vtg, checksum);
-	strncat(nmea_buffer,checksum, NMEA_BUFFER_SIZE);
-	strncat(nmea_buffer,"\r\n", NMEA_BUFFER_SIZE);
+	//move the gps position
+	haversine::move_distance_bearing(gps_latitude,
+					 gps_longitude,
+					 heading90,
+					 tilt_offset + center_offset);
 
-	//Send it
-	send_nmea(nmea_buffer,strnlen(nmea_buffer, NMEA_BUFFER_SIZE));
-	#endif
+	//Adjust altitude
+	gps_orig_altitude = gps_altitude;
+
+	gps_altitude -= cos(roll_rad) * antenna_height +
+			      sin(roll_rad) * center_offset;
+
+	if (antenna_forward) {
+		haversine::move_distance_bearing(gps_latitude,
+						 gps_longitude,
+						 gps_heading,
+						 -antenna_forward);
+	}
+
+	//calculate yaw rate.
+	heading_delta = gps_heading - last_heading;
+	if (heading_delta > 180) heading_delta -= 360; //yawing left across 0
+	else if (heading_delta <= -180) heading_delta += 360; //yawing right across 0
+
+	last_heading = gps_heading;
+	gps_yawrate = heading_delta * 1000.0 / rate_timer;
+
+	rate_timer = 0;  //should approximate time between messages
+
+	if(got_fix) got_fix();
+}
+
+static void PSTI_handler() {
+	int pstinum;
+	float east_vel;
+	float north_vel;
+	char fix_type[6];
+	char dual_mode[6];
+	float heading90;
+
+	parser.getArg(0,pstinum);
+	
+	if(pstinum == 30) {
+		if (nmea_timer > 80) {
+			//if at least 80 ms has elapsed since the last 
+			//NMEA message, we need to look again for VTG
+			got_attitude = false;
+			nmea_timer = 0; //??
+		}
+		got_pos = true;
+
+		parser.getArg(11, fix_type);
+
+		switch (fix_type[0]) {
+		case 'R':
+			gps_mode = 4;
+			break;
+		case 'F':
+			gps_mode = 5;
+			break;
+		case 'N':
+			gps_mode = 0;
+			got_attitude = false;
+			got_pos = false;
+			return; //there's no fix here?
+		case 'D':
+			gps_mode = 2;
+			break;
+
+		default:
+			gps_mode = 1;
+		}
+		
+		parser.getArg(1, gps_fix_time);
+
+		parser.getArg(3, latitude);
+		parser.getArg(4, lat_ns);
+
+		parser.getArg(5, longitude);
+		parser.getArg(6, lon_ew);
+
+		//velocity vectors in m/s, in case we don't
+		//have dual GPS and no IMU
+		parser.getArg(8, east_vel);
+		parser.getArg(9, north_vel);
+
+		parser.getArg(11,gps_fix_date);
+		parser.getArg(13,gps_dgps_age);
+
+		if (! (got_attitude && got_good_attitude)) {
+			//if 036 was seen but dual gps wasn't ready or had 
+			//good enough signal
+			//or if 036 has not been seen yet,
+			//We will set gps_heading to the velocity direction.
+
+			gps_heading = RADIANS(atan2(east_vel, north_vel));
+		}
+
+	}
+
+	if (pstinum == 36) {
+		if (nmea_timer > 80) {
+			//if at least 80 ms has elapsed since the last 
+			//NMEA message, we need to look again for VTG
+			got_pos = false;
+			nmea_timer = 0; //??
+		}
+		got_attitude = true;
+
+		parser.getArg(6,dual_mode);
+		if (dual_mode[0] == 'N') {
+			//we have insufficient fix quality to do dual GPS
+			//or there's no second antenna plugged in.
+
+			got_good_attitude = false;
+			gps_roll = 0.0;
+			//heading will yet be or is already set by the PSTI,030 
+			//parser above.
+		} else {
+			got_good_attitude = true;
+
+			parser.getArg(3, heading90);
+			parser.getArg(4, gps_roll);
+
+			gps_heading = heading90 + 90;
+			if (gps_heading >= 360)
+				gps_heading -= 360;
+			if (gps_heading <0 )
+				gps_heading += 360;
+		}
+	}
+
+	if (got_pos && got_attitude) {
+		//TODO: parse fix time and fix date
+		uint8_t hours, minutes, seconds, hundredths;
+		uint8_t month, day, year;
+
+		buf[2] = 0;
+
+		buf[0] = gps_fix_time[0];
+		buf[1] = gps_fix_time[1];
+		hours = atoi(buf);
+
+		buf[0] = gps_fix_time[2];
+		buf[1] = gps_fix_time[3];
+		minutes = atoi(buf);
+
+		buf[0] = gps_fix_time[4];
+		buf[1] = gps_fix_time[5];
+		seconds = atoi(buf);
+
+		if(gps_fix_time[6] == '.' && gps_fix_time[7] != 0 && gps_fix_time[8] != 0) {
+			buf[0] = gps_fix_time[7];
+			buf[1] = gps_fix_time[8];
+			hundredths = atoi(buf);
+		} else {
+			hundredths = 0;
+		}
+
+		buf[0] = gps_fix_date[0];
+		buf[1] = gps_fix_date[1];
+		day = atoi(buf);
+
+		buf[0] = gps_fix_date[2];
+		buf[1] = gps_fix_date[3];
+		month = atoi(buf);
+
+		buf[0] = gps_fix_date[4];
+		buf[1] = gps_fix_date[5];
+		year = atoi(buf);
+
+		gps_j1939_datetime = ((float)seconds + hundredths /100.0) * 4;
+		gps_j1939_datetime |= ((uint64_t)minutes << 8);
+		gps_j1939_datetime |= ((uint64_t)hours << 16);
+		gps_j1939_datetime |= ((uint64_t)month << 24);
+		gps_j1939_datetime |= (((uint64_t)day * 4) << 32);
+		gps_j1939_datetime |= (((uint64_t)year - 1985) << 40);
+		gps_j1939_datetime |= ((uint64_t)125 << 48); //zero
+		gps_j1939_datetime |= ((uint64_t)125 << 56); //zero
+
+		got_pos = false;
+		got_attitude = false; //clear for next one
+
+		process_imu();
+	}
+}
+
+static void error_handler() {
+
+}
+
+namespace px1172rh {
+	void setup(FixHandler fix_handler){
+		parser.setErrorHandler(error_handler);
+		parser.addHandler("PSTI", PSTI_handler);
+
+		got_pos = false;
+		got_attitude = false;
+		buf[2] = 0;
+
+		got_fix = fix_handler;
+	}
+
+	void set_on_fix_handler(FixHandler fix_handler) {
+		got_fix = fix_handler;
+	}
+
+	void process_byte(char c) {
+		parser << c;
+	}
 }
 
 
-void setup_psti(FixHandler fix_handler){
-	got_psti_fix = fix_handler;
-}
-
+#if 0
 void psti_process(char c) {
 	if (sti.process(c)) {
 		if (sti.getType() == 30) {
@@ -236,7 +425,7 @@ void psti_process(char c) {
 				//not really sure why I am doing this since you can't steer
 				//with this level of GPS. Mapping maybe?
 
-				heading = atan2(-east_speed, north_speed) * 180.0 / PI;
+				heading = atan2(east_speed, north_speed) * 180.0 / PI;
 				if (heading <0) heading += 360;
 
 				gps_heading = heading;
@@ -310,3 +499,4 @@ void psti_process(char c) {
 		}
 	}
 }
+#endif
