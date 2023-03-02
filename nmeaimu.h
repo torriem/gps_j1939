@@ -4,19 +4,12 @@
 #include "fix_handler.h"
 #include "imubase.h"
 
-#define ROLL_NORMAL 1
-#define ROLL_REVERSE -1
-
-//extern bool swap_pitch_roll;
-//extern float roll_offset;
-//extern float roll_direction;
-
-//TODO: separate out the IMU reader into its own
-//      module so we can work the WT901c later
-
-void setup_nmea_parser(FixHandler fix_handler, IMUBase *the_imu, FixHandler new_gps_position_handler);
-void nmea_process(char c);
-
+namespace nmea_imu {
+	void setup(FixHandler fix_handler = NULL, IMUBase *the_imu = NULL);
+	void set_imu(IMUBase *the_imu);
+	void set_on_fix_handler(FixHandler fix_handler);
+	void process_byte(char c);
+}
 #endif
 
 

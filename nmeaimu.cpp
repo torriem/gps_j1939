@@ -1,19 +1,18 @@
 #include "nmeaimu.h"
 #include "globals.h"
+#include "whichteensy.h"
+#ifndef TEENSY
 #include <elapsedMillis.h>
+#endif
 #include "NMEAParser.h"
 #include "haversine.h"
-#include "kfilter1.h"
-#include "SimpleKalmanFilter.h"
+//#include "kfilter1.h"
+//#include "SimpleKalmanFilter.h"
 #include <math.h>
 #include "shared_nmea_buffer.h"
 #include "nmea_checksum.h"
 #include "imubase.h"
 	
-extern double autosteer_orig_lat;
-extern double autosteer_orig_lon;
-extern double autosteer_orig_altitude;
-
 //minimum speed to use VTG to calculate IMU heading offset
 #define MIN_VTG_SPEED 0.5 //kph
 //minimum fix to fix distance to calculate a heading
@@ -21,16 +20,15 @@ extern double autosteer_orig_altitude;
 
 static double last_lat = 400;
 static double last_lon = 400;
-static KFilter1 yawrate_filter(0.1, 1.0f, 0.0003f);
-static KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
-static KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
-
-static FixHandler got_fix = NULL;
-static FixHandler new_gps_position = NULL;
+//static KFilter1 yawrate_filter(0.1, 1.0f, 0.0003f);
+//static KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
+//static KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
 
 static NMEAParser<2> parser;
 
-IMUBase *imu = NULL; //IMU to use
+static FixHandler got_fix = NULL;
+static IMUBase *imu = NULL; //IMU to use
+
 static bool  use_imu = false;
 
 static bool got_gga = false;
@@ -39,11 +37,8 @@ static bool got_vtg = false;
 static char buf[3];
 
 static elapsedMillis nmea_timer;
-static elapsedMillis imu_timer;
 static elapsedMillis rate_timer;
 
-extern bool imu_heading_offset_set;
-extern float imu_heading_offset;
 static float last_heading = 0;
 
 //places to store NMEA fields
@@ -189,10 +184,9 @@ static inline void process_imu(void) {
 	rate_timer = 0;  //should approximate time between messages
 
 	if(got_fix) got_fix();
-	new_gps_position();
 }
 
-void GGA_handler() {
+static void GGA_handler() {
 	if (nmea_timer > 80) {
 		//if at least 80 ms has elapsed since the last 
 		//NMEA message, we need to look again for VTG
@@ -206,6 +200,7 @@ void GGA_handler() {
 	
 	parser.getArg(0,gps_fix_time);
 	uint8_t hours, minutes, seconds, hundredths;
+	buf[2] = 0;
 
 	buf[0] = gps_fix_time[0];
 	buf[1] = gps_fix_time[1];
@@ -278,7 +273,7 @@ void GGA_handler() {
 	}
 }
 
-void VTG_handler() {
+static void VTG_handler() {
 	if (nmea_timer > 80) {
 		//if at least 80 ms has elapsed since the last 
 		//NMEA message, we need to look again for GGA
@@ -308,38 +303,44 @@ void VTG_handler() {
 
 }
 
-void error_handler() {
+static void error_handler() {
 
 }
 
+namespace nmea_imu {
+	void setup(FixHandler fix_handler, IMUBase *the_imu) {
+		parser.setErrorHandler(error_handler);
+		parser.addHandler("G-GGA", GGA_handler);
+		parser.addHandler("G-VTG", VTG_handler);
 
-//TODO: pass in handler to call when we've got a new position and
-//need to send it over CAN.
-void setup_nmea_parser(FixHandler fix_handler, IMUBase *the_imu = NULL, FixHandler new_gps_pos_handler = NULL) {
-	parser.setErrorHandler(error_handler);
-	parser.addHandler("G-GGA", GGA_handler);
-	parser.addHandler("G-VTG", VTG_handler);
+		got_fix = fix_handler;
 
-	got_fix = fix_handler;
-	new_gps_position = new_gps_pos_handler;
+		imu_heading_offset_set = false;
+		imu = the_imu;
 
-	imu_heading_offset_set = false;
-	imu = the_imu;
+		//initialize our timeout counters
+		nmea_timer = 0;
+		rate_timer = 0;
 
-	//initialize our timeout counters
-	nmea_timer = 0;
-	rate_timer = 0;
-
-	last_lat = 400;
-	last_lon = 400;
-	buf[2] = 0;
+		last_lat = 400;
+		last_lon = 400;
+		buf[2] = 0;
 
 
-	if (imu) {
-		use_imu = true;
+		if (imu) {
+			use_imu = true;
+		}
 	}
-}
 
-void nmea_process(char c) {
-	parser << c;
+	void process_byte(char c) {
+		parser << c;
+	}
+
+	void set_imu(IMUBase *the_imu) {
+		imu = the_imu;
+	}
+
+	void set_on_fix_handler(FixHandler fix_handler) {
+		got_fix = fix_handler;
+	}
 }
