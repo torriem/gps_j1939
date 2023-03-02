@@ -26,6 +26,7 @@
 #endif
 #include "bnorvc.h"
 #include "serial_config.h"
+#include "serial_csv.h"
 #include "nmea_gga.h"
 #include "nmea_vtg.h"
 
@@ -67,9 +68,11 @@ unsigned long last_61184 = millis();
 long can_messages_received = 0; // a sort of heartbeat on the CAN bus.
 uint8_t spinner_state = 0;
 
+//move these to serial_config.c
 BluetoothSerial SerialBT;
 HardwareSerial SerialIMU(1);
 HardwareSerial SerialGPS(2);
+SerialCSV debug_csv;
 
 BNORVC bno_rvc;
 
@@ -82,34 +85,44 @@ void on_new_position(void) {
 	nmea_gga_uncorrected.generate();
 	nmea_vtg.generate();
 
+	/* Note.  The serial TX buffer is typically 128 characters.
+	   if it's more full than that, sending blocks.  We need to
+	   make sure we read the IMU data stream fairly frequently so
+	   we don't miss any messages.  We might need to poll the imu
+	   between transmitting sentences. So far we don't lose anything
+	   even when sending takes nearly 10ms.  */
+
 	//send to CAN bus
 	bluetooth_nmea.send_position();
 	serial1_nmea.send_position();
+	debug_csv.send_position(bno_rvc);
 
 	message_count ++;
 	if (message_count == 5) {
 		//every 5 message sets, send the configuration
 		//messages.
 		message_count = 0;
-		serial_config::send_nmea();
+		serial_config::send_nmea(process_imu);
 
 		//send imu config
 		//send gps config
 	}
-	//TODO: why is it so slow when the config strings are printed to 
-	//bluetooth?
-	//Serial.println(timer);
+}
 
+void process_imu() {
+	bno_rvc.process_data();
 }
 
 void setup()
 {
-	Serial.begin(115200);
+	Serial.begin(serial_config::serial1_baud);
 
 	//TODO: store serial input baud rates in flash
 	//allow them to be changed.
-	SerialGPS.begin(460800,SERIAL_8N1,25,14);
-	SerialIMU.begin(115200,SERIAL_8N1,27,16);
+	SerialGPS.begin(serial_config::gps_baud,SERIAL_8N1,25,14);
+	SerialGPS.setRxBufferSize(1024);
+	SerialIMU.begin(serial_config::imu_baud,SERIAL_8N1,27,16);
+	SerialIMU.setRxBufferSize(1024);
 
 	//TODO: store bt name and output serial baud rates
 	//in flash, and allow them to be changed.
@@ -120,11 +133,11 @@ void setup()
 
 	//set up NMEA output streams
 	bluetooth_nmea.set_stream(&SerialBT);
-	serial1_nmea.set_stream(&Serial);
+	//serial1_nmea.set_stream(&Serial);
+	debug_csv.set_stream(&Serial);
 
 	bluetooth_nmea.send_gga(true);
 	bluetooth_nmea.send_vtg(true);
-	bluetooth_nmea.send_cfg(true);
 	bluetooth_nmea.set_corrected(true);
 
 	serial1_nmea.send_gga(true);
@@ -132,6 +145,10 @@ void setup()
 	serial1_nmea.send_cfg(true);
 	serial1_nmea.set_corrected(true);
 
+	//prepare the proprietary messages that
+	//contain our present settings, ultimately to help
+	//configure and control over a serial port, perhaps
+	//through another ESP32 if this was running on a teensy.
 	serial_config::generate_nmea();
 
 	delay(2000);
@@ -142,12 +159,12 @@ void setup()
 
 	switch(gps_source) {
 	case GPS_PX1172RH:
-		setup_psti(NULL);
+		px1172rh::setup(on_new_position);
 		break;
 	case GPS_NMEA_BNO:
 		//TODO: IMU serial port
 		//setup_nmea_parser(send_gps_messages, (Stream *) NULL);
-		setup_nmea_parser(NULL, &bno_rvc, on_new_position);
+		nmea_imu::setup(on_new_position, &bno_rvc);
 		break;
 	}
 }
@@ -218,10 +235,10 @@ void loop()
 
 			switch(gps_source) {
 			case GPS_PX1172RH:
-				psti_process(c);
+				px1172rh::process_byte(c);
 				break;
 			case GPS_NMEA_BNO:
-				nmea_process(c);
+				nmea_imu::process_byte(c);
 				break;
 			}
 		}
