@@ -63,13 +63,21 @@ namespace serial_config {
 #endif
 	}
 		
-	void send_nmea(void) {
+	void send_nmea(scfg_process_imu process_imu) {
 		if (bluetooth_nmea.is_active_cfg()) {
 			bluetooth_nmea.send_string(nmea_buffer, strlen(nmea_buffer));
 		}
+		//because serial writing blocks sometimes, we should process
+		//the IMU since it comes in at 100hz
+		if(process_imu) process_imu();
+
 		if (serial1_nmea.is_active_cfg()) {
 			serial1_nmea.send_string(nmea_buffer, strlen(nmea_buffer));
 		}
+		//because serial writing blocks sometimes, we should process
+		//the IMU since it comes in at 100hz
+		if(process_imu) process_imu();
+
 	}
 
 	const char *get_nmea() {

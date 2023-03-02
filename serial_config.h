@@ -1,6 +1,11 @@
 #ifndef __SERIAL_CONFIG_H__
 #define __SERIAL_CONFIG_H__
 
+#ifndef NULL
+#define NULL 0
+#endif
+
+typedef void (*scfg_process_imu)(void);
 
 namespace serial_config {
 
@@ -19,7 +24,7 @@ namespace serial_config {
 
 	void generate_nmea(void);
 
-	void send_nmea(void);
+	void send_nmea(scfg_process_imu process_imu = NULL);
 
 	const char *get_nmea();
 }
