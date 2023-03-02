@@ -26,6 +26,7 @@ public:
 	float get_roll (int lookback_ms);
 	float get_pitch (int lookback_ms);
 	float get_yaw (int lookback_ms);
+	int get_oldest_time(void);
 };
 
 #endif

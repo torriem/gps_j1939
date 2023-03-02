@@ -77,4 +77,7 @@ float BNORVC::get_yaw(int lookback_ms) {
 	}
 }
 
+int BNORVC::get_oldest_time(void) {
+	return BNO_MAX_LOOKBACK * 10;
+}
 

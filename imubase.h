@@ -9,6 +9,7 @@ public:
 	virtual float get_roll(int lookback_ms) = 0;
 	virtual float get_yaw(int lookback_ms) = 0;
 	virtual float get_pitch(int lookback_ms) = 0;
+	virtual int get_oldest_time(void) = 0;
 };
 
 #endif
