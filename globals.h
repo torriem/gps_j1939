@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include "serial_nmea.h"
+#include "whichteensy.h"
 /*
  * I know everyone hates globals, but they do serve a purpose
  *
@@ -96,20 +97,5 @@ extern float gps_geoid;
 extern bool gps_generate_gga;
 extern bool gps_generate_vtg;
 extern bool gps_generate_panda;
-
-
-//serial outputs maybe move to serial_config.h
-#if defined(ESP32)
-extern SerialNMEA bluetooth_nmea;
-extern SerialNMEA serial1_nmea;
-//extern SerialNMEA serial2_nmea;
-//extern SerialNMEA serial3_nmea;
-
-#elif defined(TEENSY)
-extern SerialNMEA usbserial_nmea;
-//extern SerialNMEA 
-#endif
-
-
 
 #endif
