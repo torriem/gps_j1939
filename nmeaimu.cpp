@@ -24,7 +24,7 @@ static double last_lon = 400;
 //static KFilter1 heading_filter(0.1, 1.0f, 0.0003f);
 //static KFilter1 roll_filter(0.1, 1.0f, 0.0003f);
 
-static NMEAParser<2> parser;
+static NMEAParser<3> parser;
 
 static FixHandler got_fix = NULL;
 static IMUBase *imu = NULL; //IMU to use
@@ -200,6 +200,8 @@ static void GGA_handler() {
 	
 	parser.getArg(0,gps_fix_time);
 	uint8_t hours, minutes, seconds, hundredths;
+	uint8_t month, day, year;
+
 	buf[2] = 0;
 
 	buf[0] = gps_fix_time[0];
@@ -221,12 +223,31 @@ static void GGA_handler() {
 	} else {
 		hundredths = 0;
 	}
+	
+	buf[0] = gps_fix_date[0];
+	buf[1] = gps_fix_date[1];
+	day = atoi(buf);
+
+	buf[0] = gps_fix_date[2];
+	buf[1] = gps_fix_date[3];
+	month = atoi(buf);
+
+	buf[0] = gps_fix_date[4];
+	buf[1] = gps_fix_date[5];
+	year = atoi(buf);
 
 	gps_j1939_datetime = ((float)seconds + hundredths /100.0) * 4;
 	gps_j1939_datetime |= ((uint64_t)minutes << 8);
 	gps_j1939_datetime |= ((uint64_t)hours << 16);
-	//Date not part of GGA, so fake it for now. 1 Jan 1985
-	gps_j1939_datetime |= 0x7d7d000401000000;
+	//Date comes in from RMC if present, otherwise we use a default
+	//date set in the setup function.
+	gps_j1939_datetime |= ((uint64_t)month << 24);
+	gps_j1939_datetime |= (((uint64_t)day * 4) << 32);
+	gps_j1939_datetime |= (((uint64_t)year - 1985) << 40);
+	gps_j1939_datetime |= ((uint64_t)125 << 48); //zero
+	gps_j1939_datetime |= ((uint64_t)125 << 56); //zero
+
+	//gps_j1939_datetime |= 0x7d7d000401000000;
 	
 	parser.getArg(1,latitude);
 	parser.getArg(2,lat_ns);
@@ -303,6 +324,10 @@ static void VTG_handler() {
 
 }
 
+static void RMC_handler() {
+	parser.getArg(8,gps_fix_date);
+}
+
 static void error_handler() {
 
 }
@@ -326,6 +351,8 @@ namespace nmea_imu {
 		last_lon = 400;
 		buf[2] = 0;
 
+		//Date not part of GGA, so fake it if no RMC messages. 1 Jan 1985
+		strcpy(gps_fix_date, "010185");
 
 		if (imu) {
 			use_imu = true;
