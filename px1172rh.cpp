@@ -25,7 +25,7 @@ static uint32_t last_heading_time = 0;
 static char sti_nmea_buffer[160];
 static STINMEA sti(sti_nmea_buffer, sizeof(sti_nmea_buffer)); //handles PSTI
 
-static NMEAParser<1> parser;
+static NMEAParser<2> parser;
 
 char buf[3];
 static char latitude[15];
@@ -52,6 +52,9 @@ static inline void process_imu(void) {
 	double heading90;
 	double tilt_offset;
 	double center_offset;
+
+	gps_orig_latitude = gps_latitude;
+	gps_orig_longitude = gps_longitude;
 
 	//Perform terrain compensation.  If an IMU is present, we can combine
 	//the IMU roll reading with the dual GPS roll reading perhaps.
@@ -102,13 +105,15 @@ static inline void process_imu(void) {
 }
 
 static void PSTI_handler() {
-	int pstinum;
+	int pstinum = 0;
 	float east_vel;
 	float north_vel;
 	char fix_type[6];
 	char dual_mode[6];
 	float heading90;
+	char temp[10];
 
+	heading90 = 0;
 	parser.getArg(0,pstinum);
 	
 	if(pstinum == 30) {
@@ -120,8 +125,7 @@ static void PSTI_handler() {
 		}
 		got_pos = true;
 
-		parser.getArg(11, fix_type);
-
+		parser.getArg(12, fix_type);
 		switch (fix_type[0]) {
 		case 'R':
 			gps_mode = 4;
@@ -147,8 +151,24 @@ static void PSTI_handler() {
 		parser.getArg(3, latitude);
 		parser.getArg(4, lat_ns);
 
+		gps_latitude = atof(latitude);
+		gps_latitude = int(gps_latitude / 100) /*deg part*/ +
+			          (gps_latitude - int(gps_latitude/100) * 100) / 60; /*decimal part*/
+
+		if (lat_ns[0] == 'S') 
+			gps_latitude = -gps_latitude;
+
 		parser.getArg(5, longitude);
 		parser.getArg(6, lon_ew);
+
+		gps_longitude = atof(longitude);
+		gps_longitude = int(gps_longitude / 100) /*deg part*/ +
+				  (gps_longitude - int(gps_longitude/100) * 100) / 60; /*decimal part*/
+		
+		if (lon_ew[0] == 'W')
+			gps_longitude = -gps_longitude;
+
+		parser.getArg(7, gps_altitude);
 
 		//velocity vectors in m/s, in case we don't
 		//have dual GPS and no IMU
@@ -157,6 +177,8 @@ static void PSTI_handler() {
 
 		parser.getArg(11,gps_fix_date);
 		parser.getArg(13,gps_dgps_age);
+
+
 
 		if (! (got_attitude && got_good_attitude)) {
 			//if 036 was seen but dual gps wasn't ready or had 
@@ -179,7 +201,8 @@ static void PSTI_handler() {
 		got_attitude = true;
 
 		parser.getArg(6,dual_mode);
-		if (dual_mode[0] == 'N') {
+		Serial.println(dual_mode);
+		if (dual_mode[0] != 'R' && dual_mode[0] != 'F') {
 			//we have insufficient fix quality to do dual GPS
 			//or there's no second antenna plugged in.
 
@@ -256,6 +279,14 @@ static void PSTI_handler() {
 	}
 }
 
+static void GGA_handler() {
+	parser.getArg(6, gps_num_sats);
+	parser.getArg(7, gps_hdop);
+	parser.getArg(10, gps_geoid);
+	parser.getArg(12, gps_dgps_age);
+
+}
+
 static void error_handler() {
 
 }
@@ -264,6 +295,7 @@ namespace px1172rh {
 	void setup(FixHandler fix_handler){
 		parser.setErrorHandler(error_handler);
 		parser.addHandler("PSTI", PSTI_handler);
+		parser.addHandler("G-GGA", GGA_handler);
 
 		got_pos = false;
 		got_attitude = false;
