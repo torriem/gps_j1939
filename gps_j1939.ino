@@ -20,6 +20,7 @@
 #include "nmeaimu.h"
 #include "shared_nmea_buffer.h"
 #include "nmea_checksum.h"
+#include "whichteensy.h"
 #ifndef TEENSY
 #include <BluetoothSerial.h> //ESP32 only
 #include <elapsedMillis.h>
@@ -49,16 +50,11 @@ uint8_t serial_buffer[1024]; //overkill hopefully
 
 #define GPS_TIMEOUT 400 //after 200ms of no GPS position, show "No GPS" on monitor
 
-uint8_t gps_source = GPS_NMEA_BNO;
+uint8_t gps_source = GPS_PX1172RH;
 uint8_t virtual_source = VIRTUAL_NONE;
 
 //int8_t monitor_can = -1;
 int8_t monitor_can = 0;
-
-//external GPS source variables
-double autosteer_orig_lat=0;
-double autosteer_orig_lon=0;
-double autosteer_orig_altitude = 0;
 
 int autosteer_source=0; //0 = inadequate, 1=WAAS, 2 = SF1 or higher, 3 = External
 long autosteer_lastext=0;
@@ -68,12 +64,25 @@ unsigned long last_61184 = millis();
 long can_messages_received = 0; // a sort of heartbeat on the CAN bus.
 uint8_t spinner_state = 0;
 
-//move these to serial_config.c
-BluetoothSerial SerialBT;
-HardwareSerial SerialIMU(1);
-HardwareSerial SerialGPS(2);
-SerialCSV debug_csv;
+char testbuf[1024];
 
+//TODO move these to serial_config.c
+#if defined(ESP32)
+
+    BluetoothSerial SerialBT;
+    HardwareSerial SerialIMU(1);
+    HardwareSerial SerialGPS(2);
+
+#elif defined(TEENSY)
+
+     uint8_t serialgps_buffer[1024];
+#    define SerialIMU Serial4
+#    define SerialGPS Serial3
+#    define SerialOut Serial5
+
+#endif
+
+SerialCSV debug_csv;
 BNORVC bno_rvc;
 
 static int message_count = 0;
@@ -85,16 +94,15 @@ void on_new_position(void) {
 	nmea_gga_uncorrected.generate();
 	nmea_vtg.generate();
 
-	/* Note.  The serial TX buffer is typically 128 characters.
-	   if it's more full than that, sending blocks.  We need to
-	   make sure we read the IMU data stream fairly frequently so
-	   we don't miss any messages.  We might need to poll the imu
-	   between transmitting sentences. So far we don't lose anything
-	   even when sending takes nearly 10ms.  */
-
 	//send to CAN bus
+#if defined(ESP32)	
 	bluetooth_nmea.send_position();
-	serial1_nmea.send_position();
+#endif
+
+#if defined(TEENSY)
+	serialusb_nmea.send_position();
+#endif
+	serialout_nmea.send_position();
 	debug_csv.send_position(bno_rvc);
 
 	message_count ++;
@@ -115,10 +123,11 @@ void process_imu() {
 
 void setup()
 {
-	Serial.begin(serial_config::serial1_baud);
 
 	//TODO: store serial input baud rates in flash
 	//allow them to be changed.
+#if defined(ESP32)
+	Serial.begin(serial_config::serialout_baud);
 	SerialGPS.begin(serial_config::gps_baud,SERIAL_8N1,25,14);
 	SerialGPS.setRxBufferSize(1024);
 	SerialIMU.begin(serial_config::imu_baud,SERIAL_8N1,27,16);
@@ -128,30 +137,49 @@ void setup()
 	//in flash, and allow them to be changed.
 	SerialBT.begin("rovertest");
 
-	//set BNO to read data from SerialIMU
-	bno_rvc.set_uart(&SerialIMU);
-
-	//set up NMEA output streams
+	//set up output streams
 	bluetooth_nmea.set_stream(&SerialBT);
-	//serial1_nmea.set_stream(&Serial);
-	debug_csv.set_stream(&Serial);
+	serialout_nmea.set_stream(&Serial);
 
 	bluetooth_nmea.send_gga(true);
 	bluetooth_nmea.send_vtg(true);
 	bluetooth_nmea.set_corrected(true);
+#elif defined(TEENSY)
+	Serial.begin(115200);
+	SerialGPS.addMemoryForRead(serial_buffer,1024);
+	SerialGPS.begin(serial_config::gps_baud);
+	SerialIMU.begin(serial_config::imu_baud);
+	SerialOut.begin(serial_config::serialout_baud);
 
-	serial1_nmea.send_gga(true);
-	serial1_nmea.send_vtg(true);
-	serial1_nmea.send_cfg(true);
-	serial1_nmea.set_corrected(true);
+	//set up output streams
+	serialusb_nmea.set_stream(&Serial);
+	//serialout_nmea.set_stream(&SerialOut);
+
+	serialusb_nmea.send_gga(true);
+	serialusb_nmea.send_vtg(true);
+	serialusb_nmea.send_cfg(true);
+	serialusb_nmea.set_corrected(true);
+#endif
+
+	//set BNO to read data from SerialIMU
+	bno_rvc.set_uart(&SerialIMU);
+
+	debug_csv.set_stream(&Serial);
+
+	serialout_nmea.send_gga(true);
+	serialout_nmea.send_vtg(true);
+	serialout_nmea.send_cfg(true);
+	serialout_nmea.set_corrected(true);
+
+
 
 	//prepare the proprietary messages that
 	//contain our present settings, ultimately to help
 	//configure and control over a serial port, perhaps
 	//through another ESP32 if this was running on a teensy.
-	serial_config::generate_nmea();
-
 	delay(2000);
+	Serial.println("configuring config sentences.");
+	serial_config::generate_nmea();
 	Serial.println("gps_j1939 on ESP32");
 	autosteer_source = 0;
 	gps_latitude = 0;
@@ -176,6 +204,7 @@ void loop()
 	unsigned long t;
 
 	// virtual position generators
+	//TODO: fix virtual sources to have a callback 
 	CircleGenerator circlegen;
         StaticPosition staticpos;
 
@@ -192,6 +221,7 @@ void loop()
 		t = millis();
 
 		switch(virtual_source) {
+		//TODO: fix virtual sources to have a callback 
 		case VIRTUAL_CIRCLE:
 			if (circlegen.circle_position(t, 200)) {
 				autosteer_source = 3;
@@ -212,8 +242,8 @@ void loop()
 			break;
 		}
 
+#if defined(ESP32)	
 		//process bluetooth ntrip
-#               ifndef TEENSY		
 		while (SerialBT.available())
 		{
 			SerialGPS.write(SerialBT.read());
@@ -221,7 +251,7 @@ void loop()
 #endif
 
 		//process IMU data
-		bno_rvc.process_data();
+		//bno_rvc.process_data();
 
 		//now process serial bytes that have accumulated
 		while(SerialGPS.available()) {
