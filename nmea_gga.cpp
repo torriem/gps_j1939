@@ -33,7 +33,7 @@ void NMEAGGA::generate(void) {
 
 	//GGA
 	snprintf(this->nmea_buffer,GNB_NMEA_BUFFER_SIZE,
-	         "$GNGGA,%s,%d.%d,%s,%d.%d,%s,%d,%02d,%.2f,%.2f,M,%.1f,M,%s,0000",
+	         "$GPGGA,%s,%d.%d,%s,%d.%d,%s,%d,%02d,%.2f,%.2f,M,%.1f,M,%s,0000",
 	         gps_fix_time, 
 		 lat1, lat2, (lat<0 ? "S" : "N"),
 		 lon1, lon2, (lon<0 ? "W" : "E"),

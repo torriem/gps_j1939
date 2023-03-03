@@ -9,7 +9,7 @@ void NMEAVTG::generate(void) {
 	char checksum[6];
 
 	snprintf(this->nmea_buffer,GNB_NMEA_BUFFER_SIZE,
-	         "$GNVTG,%.3f,T,,M,%.3f,N,%.2f,K,D",
+	         "$GPVTG,%.3f,T,,M,%.3f,N,%.2f,K,D",
 	         gps_heading,
 		 gps_speed * 0.54, //knots
 		 gps_speed); //kph
