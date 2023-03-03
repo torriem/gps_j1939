@@ -69,7 +69,7 @@ template <size_t S> class NMEAParser {
        are not bufferized, 82 - 6 + 1 = 77 chars  are enough.
        is enough.
     */
-    static const uint8_t kSentenceMaxSize = 90;
+    static const uint8_t kSentenceMaxSize = 128;
 
   private:
     /*
@@ -555,6 +555,20 @@ template <size_t S> class NMEAParser {
         {
           NMEAParserStringify stfy(this, endPos);
           arg = atoi(&mBuffer[startPos]);
+        }
+        return true;
+      }
+      else return false;
+    }
+
+    bool getArg(uint8_t num, double &arg)
+    {
+      if (validArgNum(num)) {
+        uint8_t startPos = startArgPos(num);
+        uint8_t endPos = endArgPos(num);
+        {
+          NMEAParserStringify stfy(this, endPos);
+          arg = atof(&mBuffer[startPos]);
         }
         return true;
       }
