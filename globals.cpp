@@ -1,5 +1,5 @@
 #include "globals.h"
-#include "conversions.h"
+#include "defaults.h"
 
 //define and initialize all the variables externed in globals.h
 
@@ -7,21 +7,21 @@
  * Antenna physical configuration
  ********************************/
 
-double antenna_forward = 0;
-double antenna_height = 120 * INCHES;
-double antenna_right = 26.5 * INCHES;
+double antenna_forward = ANTENNA_DEFAULT_FORWARD;
+double antenna_height = ANTENNA_DEFAULT_HEIGHT;
+double antenna_right = ANTENNA_DEFAULT_RIGHT;
 
 /*****************************
  * IMU configuration and state
  *****************************/
 
-int imu_source = 0;
-float imu_roll_offset = 0;
+int imu_source = IMU_DEFAULT_SOURCE;
+float imu_roll_offset = IMU_DEFAULT_ROLL_OFFSET;
 bool imu_use_pitch = false;
 bool imu_reverse = false;
 bool imu_heading_offset_set = false;
 float imu_heading_offset = 400;
-int imu_lookback = 90;
+int imu_lookback = IMU_DEFAULT_LOOKBACK;
 float imu_last_roll = 0;
 
 /*****************************
