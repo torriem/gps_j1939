@@ -11,5 +11,6 @@ public:
 };
 
 extern NMEARMC nmea_rmc;
+extern NMEARMC nmea_rmc_uncorrected;
 
 #endif
