@@ -2,23 +2,14 @@
 #define __NMEAIMU_H__
 #include "Arduino.h"
 #include "fix_handler.h"
+#include "imubase.h"
 
-#define ROLL_NORMAL 1
-#define ROLL_REVERSE -1
-
-//extern bool swap_pitch_roll;
-//extern float roll_offset;
-//extern float roll_direction;
-
-//TODO: separate out the IMU reader into its own
-//      module so we can work the WT901c later
-
-void setup_nmea_parser(FixHandler fix_handler, Stream *imu_stream, SendNMEA send_nmea_handler);
-void nmea_process(char c);
-void read_imu();
-int16_t get_imu_lookback(void);
-void set_imu_lookback(int16_t);
-
+namespace nmea_imu {
+	void setup(FixHandler fix_handler = NULL, IMUBase *the_imu = NULL);
+	void set_imu(IMUBase *the_imu);
+	void set_on_fix_handler(FixHandler fix_handler);
+	void process_byte(char c);
+}
 #endif
 
 

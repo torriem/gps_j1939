@@ -1,4 +1,5 @@
 #include "circle_generator.h"
+#include "globals.h"
 #include <math.h>
 #include "haversine.h"
 
@@ -40,16 +41,16 @@ bool CircleGenerator::circle_position(unsigned long time, uint32_t cycle_time) {
 		lat = center_lat;
 		haversine::move_distance_bearing( lat, lon, current_angle, radius );
 
-		autosteer_mode = 'R';
-		autosteer_lat = lat;
-		autosteer_lon = lon;
-		autosteer_heading = current_angle + 90;
-		if (autosteer_heading >= 360.0) 
-			autosteer_heading -= 360.0;
-		autosteer_roll = 0;
-		autosteer_yawrate = yaw_rate;
-		autosteer_speed = speed;
-		autosteer_altitude = center_alt;
+		gps_mode = 4 ;
+		gps_latitude = lat;
+		gps_longitude = lon;
+		gps_heading = current_angle + 90;
+		if (gps_heading >= 360.0) 
+			gps_heading -= 360.0;
+		gps_roll = 0;
+		gps_yawrate = yaw_rate;
+		gps_speed = speed;
+		gps_altitude = center_alt;
 
 		//fake time from teensy millis() timer
 		uint32_t seconds = (time % 60000);
@@ -57,10 +58,10 @@ bool CircleGenerator::circle_position(unsigned long time, uint32_t cycle_time) {
 		uint32_t hours = (time - seconds) / 3600000;
 
 		//jan 1, 1985
-		autosteer_datetime = (uint64_t)(((float)time / 1000.0) * 4);
-		autosteer_datetime |= ((uint64_t)minutes << 8);
-		autosteer_datetime |= ((uint64_t)hours << 16);
-		autosteer_datetime |= 0x7d7d000401000000;
+		gps_j1939_datetime = (uint64_t)(((float)time / 1000.0) * 4);
+		gps_j1939_datetime |= ((uint64_t)minutes << 8);
+		gps_j1939_datetime |= ((uint64_t)hours << 16);
+		gps_j1939_datetime |= 0x7d7d000401000000;
 
 		return true;
 	}

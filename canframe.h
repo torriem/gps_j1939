@@ -5,7 +5,7 @@
 
 #ifdef TEENSY
 #  include <FlexCAN_T4.h>
-#else
+#else //TODO ESP32 or Due
 #  include <can_common.h>
 #endif
 
