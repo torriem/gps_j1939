@@ -4,7 +4,9 @@
 #include "whichteensy.h"
 //Turn on LCD on Teensy by setting this define, disable
 //by commenting it out.
+#ifdef TEENSY
 //#define TEENSY_TFT 
+#endif
 
 namespace LCD {
 	void setup();
