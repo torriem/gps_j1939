@@ -1,6 +1,11 @@
 #include "lcd.h"
 #include "globals.h"
 
+#include "whichteensy.h"
+#ifndef TEENSY
+#include <elapsedMillis.h>
+#endif
+
 #ifdef TEENSY_TFT
 #  include <SD.h>
 #  include <SPI.h>

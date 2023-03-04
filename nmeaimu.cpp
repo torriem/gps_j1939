@@ -337,6 +337,7 @@ namespace nmea_imu {
 		parser.setErrorHandler(error_handler);
 		parser.addHandler("G-GGA", GGA_handler);
 		parser.addHandler("G-VTG", VTG_handler);
+		parser.addHandler("G-RMC", RMC_handler);
 
 		got_fix = fix_handler;
 
