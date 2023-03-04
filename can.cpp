@@ -1,10 +1,12 @@
 #include "can.h"
 #include "whichteensy.h"
-#include "canframe.h"
 #include "globals.h"
 #if defined(TEENSY)
+#   include "canframe.h"
 #   include <FlexCAN_T4.h>
 //else if ESP or Due, include libraries
+
+static FlexCAN_T4<CAN1, RX_SIZE_1024, TX_SIZE_1024> Can0;
 #endif
 
 #ifndef TEENSY
@@ -12,7 +14,6 @@
 #endif
 
 static elapsedMillis last_can; // for periodic CAN messages
-static FlexCAN_T4<CAN1, RX_SIZE_1024, TX_SIZE_1024> Can0;
 
 static void j1939_decode(long ID, unsigned long* PGN, byte* priority, byte* src_addr, byte *dest_addr)
 {
@@ -53,12 +54,15 @@ static long j1939_encode(unsigned long pgn, byte priority, byte src_addr, byte d
 	return id;
 }
 
+#if defined(TEENSY) //or ESP32 or Due
 static inline void send_message(CANFrame &msg) {
 	Can0.write(msg);
 }
+#endif
 
 namespace CAN {
 	void setup() {
+#if defined(TEENSY)
 		//Teensy FlexCAN_T4 setup
 		Can0.begin();
 		Can0.setClock(CLK_60MHz);
@@ -66,9 +70,11 @@ namespace CAN {
 		Can0.setMaxMB(32);
 		Can0.enableFIFO();
 		//Can0.enableFIFOInterrupt();
+#endif
 	}
 
 	void send_position() {
+#if defined(TEENSY) //or ESP32 or Due
 		CANFrame msg; //for generating gps messages
 
 		msg.set_extended(true);
@@ -190,10 +196,11 @@ namespace CAN {
 
 			last_can = 0;
 		}
-
+#endif
 	}
 
 	void send_no_position() {
+#if defined (TEENSY) //or ESP32 or Due
 		CANFrame msg; //for generating gps messages
 		msg.set_extended(true);
 		msg.set_length(8); //all our messages are going to be 8 bytes
@@ -270,6 +277,7 @@ namespace CAN {
 			//msg.get_data()->uint64 = 0x8000170004333020;
 			send_message(msg);
 		}
+#endif
 	}
 }
 

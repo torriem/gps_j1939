@@ -32,6 +32,7 @@
 #include "serial_csv.h"
 #include "nmea_gga.h"
 #include "nmea_vtg.h"
+#include "nmea_rmc.h"
 
 uint8_t serial_buffer[1024]; //overkill hopefully
 
@@ -52,18 +53,9 @@ uint8_t serial_buffer[1024]; //overkill hopefully
 
 #define GPS_TIMEOUT 400 //after 200ms of no GPS position, show "No GPS" on monitor
 
-uint8_t gps_source = GPS_PX1172RH;
+uint8_t gps_source = GPS_NMEA_BNO;
 uint8_t virtual_source = VIRTUAL_NONE;
 
-//int8_t monitor_can = -1;
-int8_t monitor_can = 0;
-
-int autosteer_source=0; //0 = inadequate, 1=WAAS, 2 = SF1 or higher, 3 = External
-long autosteer_lastext=0;
-
-unsigned long last_61184 = millis();
-
-long can_messages_received = 0; // a sort of heartbeat on the CAN bus.
 uint8_t spinner_state = 0;
 
 elapsedMillis last_good_fix;
@@ -78,7 +70,7 @@ elapsedMillis last_good_fix;
 #elif defined(TEENSY)
 
      uint8_t serialgps_buffer[1024];
-#    define SerialIMU Serial4
+#    define SerialIMU Serial
 #    define SerialGPS Serial3
 #    define SerialOut Serial5
 
@@ -87,29 +79,31 @@ elapsedMillis last_good_fix;
 SerialCSV debug_csv;
 BNORVC bno_rvc;
 
-static int message_count = 0;
-
 void on_new_position(void) {
 	elapsedMillis timer = 0;
 	last_good_fix = 0;
 
+	//TODO move these generate calls somewhere
+	nmea_rmc.generate();
 	nmea_gga.generate();
 	nmea_gga_uncorrected.generate();
 	nmea_vtg.generate();
 
 	//send to CAN bus
 #if defined(ESP32)	
-	bluetooth_nmea.send_position();
+	bluetooth_nmea.send_position(process_imu);
 #endif
 
 #if defined(TEENSY)
 	LCD::new_position();
 	CAN::send_position();
-	serialusb_nmea.send_position();
+	serialusb_nmea.send_position(process_imu);
 #endif
-	serialout_nmea.send_position();
+	serialout_nmea.send_position(process_imu);
 	debug_csv.send_position(bno_rvc);
+	//Serial.println(timer);
 
+	/*
 	message_count ++;
 	if (message_count == 5) {
 		//every 5 message sets, send the configuration
@@ -120,6 +114,7 @@ void on_new_position(void) {
 		//send imu config
 		//send gps config
 	}
+	*/
 }
 
 void on_no_position(void) {
@@ -152,8 +147,8 @@ void setup()
 	bluetooth_nmea.set_stream(&SerialBT);
 	serialout_nmea.set_stream(&Serial);
 
-	bluetooth_nmea.send_gga(true);
-	bluetooth_nmea.send_vtg(true);
+	bluetooth_nmea.set_gga_interval(5);
+	bluetooth_nmea.set_vtg_interval(5);
 	bluetooth_nmea.set_corrected(true);
 #elif defined(TEENSY)
 	Serial.begin(115200);
@@ -169,10 +164,12 @@ void setup()
 	serialusb_nmea.set_stream(&Serial);
 	//serialout_nmea.set_stream(&SerialOut);
 
-	serialusb_nmea.send_gga(true);
-	serialusb_nmea.send_vtg(true);
-	serialusb_nmea.send_cfg(true);
+	serialusb_nmea.set_gga_interval(1);
+	serialusb_nmea.set_vtg_interval(1);
+	serialusb_nmea.set_rmc_interval(1);
+	serialusb_nmea.set_cfg_interval(5);
 	serialusb_nmea.set_corrected(true);
+
 #endif
 
 	//set BNO to read data from SerialIMU
@@ -180,9 +177,10 @@ void setup()
 
 	debug_csv.set_stream(&Serial);
 
-	serialout_nmea.send_gga(true);
-	serialout_nmea.send_vtg(true);
-	serialout_nmea.send_cfg(true);
+	serialout_nmea.set_gga_interval(1);
+	serialout_nmea.set_vtg_interval(1);
+	serialout_nmea.set_rmc_interval(1);
+	serialout_nmea.set_cfg_interval(5);
 	serialout_nmea.set_corrected(true);
 
 
@@ -195,17 +193,17 @@ void setup()
 	Serial.println("configuring config sentences.");
 	serial_config::generate_nmea();
 	Serial.println("gps_j1939 on ESP32");
-	autosteer_source = 0;
 	gps_latitude = 0;
 	gps_longitude = 0;
 
 	switch(gps_source) {
 	case GPS_PX1172RH:
+		Serial.println("Configured for PX1172RH Dual GPS.");
 		px1172rh::setup(on_new_position);
 		break;
 	case GPS_NMEA_BNO:
+		Serial.println("Configured for NMEA GGA and VTG, and BNO.");
 		//TODO: IMU serial port
-		//setup_nmea_parser(send_gps_messages, (Stream *) NULL);
 		nmea_imu::setup(on_new_position, &bno_rvc);
 		break;
 	}
@@ -244,18 +242,18 @@ void loop()
 		//TODO: fix virtual sources to have a callback 
 		case VIRTUAL_CIRCLE:
 			if (circlegen.circle_position(t, 200)) {
-				autosteer_source = 3;
-				//send_gps_messages();
-				autosteer_lastext = t;
+				//autosteer_source = 3;
+				on_new_position();
+				//autosteer_lastext = t;
 			}
 			if (circlegen.finished(t))
 				virtual_source = VIRTUAL_NONE;
 			break;
 		case VIRTUAL_STATIC:
 			if (staticpos.static_position(t, 200)) {
-				autosteer_source = 3;
-				//send_gps_messages();
-				autosteer_lastext = t;
+				//autosteer_source = 3;
+				on_new_position();
+				//autosteer_lastext = t;
 			}
 			if (staticpos.finished(t))
 				virtual_source = VIRTUAL_NONE;

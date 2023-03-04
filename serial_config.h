@@ -8,8 +8,6 @@
 #define NULL 0
 #endif
 
-typedef void (*scfg_process_imu)(void);
-
 #if defined(ESP32)
 extern SerialNMEA bluetooth_nmea;
 extern SerialNMEA serialout_nmea;
@@ -34,9 +32,6 @@ extern int imu_baud;
 	
 
 	void generate_nmea(void);
-
-	void send_nmea(scfg_process_imu process_imu = NULL);
-
 	const char *get_nmea();
 }
 

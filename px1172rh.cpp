@@ -186,7 +186,8 @@ static void PSTI_handler() {
 			//or if 036 has not been seen yet,
 			//We will set gps_heading to the velocity direction.
 
-			gps_heading = RADIANS(atan2(east_vel, north_vel));
+			gps_heading = DEGREES(atan2(east_vel, north_vel));
+			if (gps_heading < 0) gps_heading += 360;
 		}
 
 	}
@@ -201,7 +202,7 @@ static void PSTI_handler() {
 		got_attitude = true;
 
 		parser.getArg(6,dual_mode);
-		Serial.println(dual_mode);
+		//Serial.println(dual_mode);
 		if (dual_mode[0] != 'R' && dual_mode[0] != 'F') {
 			//we have insufficient fix quality to do dual GPS
 			//or there's no second antenna plugged in.
