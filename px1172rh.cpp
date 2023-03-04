@@ -186,7 +186,8 @@ static void PSTI_handler() {
 			//or if 036 has not been seen yet,
 			//We will set gps_heading to the velocity direction.
 
-			gps_heading = RADIANS(atan2(east_vel, north_vel));
+			gps_heading = DEGREES(atan2(east_vel, north_vel));
+			if (gps_heading < 0) gps_heading += 360;
 		}
 
 	}
