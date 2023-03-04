@@ -4,6 +4,7 @@
 #include "globals.h"
 
 NMEARMC nmea_rmc = NMEARMC(true);
+NMEARMC nmea_rmc_uncorrected = NMEARMC(false);
 
 void NMEARMC::generate(void) {
 	char checksum[6];
