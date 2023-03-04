@@ -25,6 +25,8 @@
 #include <BluetoothSerial.h> //ESP32 only
 #include <elapsedMillis.h>
 #endif
+#include "can.h"
+#include "lcd.h"
 #include "bnorvc.h"
 #include "serial_config.h"
 #include "serial_csv.h"
@@ -64,7 +66,7 @@ unsigned long last_61184 = millis();
 long can_messages_received = 0; // a sort of heartbeat on the CAN bus.
 uint8_t spinner_state = 0;
 
-char testbuf[1024];
+elapsedMillis last_good_fix;
 
 //TODO move these to serial_config.c
 #if defined(ESP32)
@@ -89,6 +91,7 @@ static int message_count = 0;
 
 void on_new_position(void) {
 	elapsedMillis timer = 0;
+	last_good_fix = 0;
 
 	nmea_gga.generate();
 	nmea_gga_uncorrected.generate();
@@ -100,6 +103,8 @@ void on_new_position(void) {
 #endif
 
 #if defined(TEENSY)
+	LCD::new_position();
+	CAN::send_position();
 	serialusb_nmea.send_position();
 #endif
 	serialout_nmea.send_position();
@@ -117,6 +122,11 @@ void on_new_position(void) {
 	}
 }
 
+void on_no_position(void) {
+	//It's been 400 ms since last fix, so assume GPS is lost
+	CAN::send_no_position();
+}
+
 void process_imu() {
 	bno_rvc.process_data();
 }
@@ -125,7 +135,8 @@ void setup()
 {
 
 	//TODO: store serial input baud rates in flash
-	//allow them to be changed.
+	//allow them to be changed.  And move this code to a
+	//setup() in a serial module
 #if defined(ESP32)
 	Serial.begin(serial_config::serialout_baud);
 	SerialGPS.begin(serial_config::gps_baud,SERIAL_8N1,25,14);
@@ -150,6 +161,9 @@ void setup()
 	SerialGPS.begin(serial_config::gps_baud);
 	SerialIMU.begin(serial_config::imu_baud);
 	SerialOut.begin(serial_config::serialout_baud);
+
+	CAN::setup(); //set up the CAN interface
+	LCD::setup(); //set up LCD if enabled
 
 	//set up output streams
 	serialusb_nmea.set_stream(&Serial);
@@ -218,6 +232,12 @@ void loop()
 	//virtual_source = VIRTUAL_STATIC;
 
 	while(1) {
+		if (last_good_fix > GPS_TIMEOUT) {
+			on_no_position();
+		}
+		
+		LCD::heartbeat();
+
 		t = millis();
 
 		switch(virtual_source) {
