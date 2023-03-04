@@ -58,6 +58,11 @@ static long j1939_encode(unsigned long pgn, byte priority, byte src_addr, byte d
 static inline void send_message(CANFrame &msg) {
 	Can0.write(msg);
 }
+
+static void teensy_got_frame(const CAN_message_t &orig_frame) {
+	//do nothing.
+}
+
 #endif
 
 namespace CAN {
@@ -69,7 +74,8 @@ namespace CAN {
 		Can0.setBaudRate(250000);
 		Can0.setMaxMB(32);
 		Can0.enableFIFO();
-		//Can0.enableFIFOInterrupt();
+		Can0.enableFIFOInterrupt();
+		Can0.onReceive(teensy_got_frame);
 #endif
 	}
 
@@ -164,13 +170,14 @@ namespace CAN {
 		msg.get_data()->uint64 = 0xf1ff1dfcffffffe3;
 		send_message(msg);
 
-		if (last_can >= 1000) {
-			//unknown
-			msg.set_id(j1939_encode(65535,6,28,255));
-			msg.get_data()->uint64 = 0xffffff11fc08fde0; //should be once a second.
-			//msg.get_data()->uint64 = 0xfffffffff00000e0;
-			send_message(msg);
+		//unknown
+		msg.set_id(j1939_encode(65535,6,28,255));
+		msg.get_data()->uint64 = 0xffffff11fc08fde0; //should be once a second.
+		//msg.get_data()->uint64 = 0xfffffffff00000e0;
+		send_message(msg);
 
+		if (last_can >= 1000) {
+			last_can = 0;
 			msg.set_id(j1939_encode(61184,5,28,128));
 			msg.get_data()->uint64 = 0x0000000000c3003f;
 			msg.set_length(3);
@@ -194,7 +201,6 @@ namespace CAN {
 			//msg.get_data()->uint64 = 0x8000170004333020;
 			send_message(msg);
 
-			last_can = 0;
 		}
 #endif
 	}
@@ -249,12 +255,12 @@ namespace CAN {
 		msg.get_data()->uint64 = 0x00ffffffffffe0e1; // unintialized TCM
 		send_message(msg);
 
+		msg.set_id(j1939_encode(65535,3,28,255));
+		msg.get_data()->uint64 = 0xfffffffff00000e0; //unintialized TCM
+		send_message(msg);
 
 		if ( last_can >= 1000) {
-			msg.set_id(j1939_encode(65535,3,28,255));
-			msg.get_data()->uint64 = 0xfffffffff00000e0; //unintialized TCM
-			send_message(msg);
-
+			last_can = 0;
 			msg.set_id(j1939_encode(61184,5,28,128));
 			msg.get_data()->uint64 = 0x0000000000c3003f;
 			msg.set_length(3);
@@ -276,6 +282,7 @@ namespace CAN {
 			msg.get_data()->uint64 = 0x800017000421e240;
 			//msg.get_data()->uint64 = 0x8000170004333020;
 			send_message(msg);
+
 		}
 #endif
 	}

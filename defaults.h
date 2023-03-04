@@ -44,13 +44,13 @@
 #define ANTENNA_DEFAULT_RIGHT 26.5 * INCHES
 
 //GPS
-#define GPS_DEFAULT_SOURCE GPS_NMEA_BNO
-#define GPS_TIMEOUT 400 //how long to wait until sending "No GPS messages."
+#define GPS_DEFAULT_SOURCE GPS_PX1172RH
+#define GPS_TIMEOUT 1000 //how long to wait until sending "No GPS messages."
 #define GPS_DEFAULT_VIRTUAL_SOURCE VIRTUAL_NONE
 
 //IMU
 #define IMU_DEFAULT_SOURCE IMU_BNO
-#define IMU_DEFAULT_ROLL_OFFSET 0
+#define IMU_DEFAULT_ROLL_OFFSET -3.625
 #define IMU_DEFAULT_LOOKBACK 90
 
 //Serial ports
@@ -60,7 +60,7 @@
 #define SERIAL_DEFAULT_OUT Serial5
 
 #define SERIAL_DEFAULT_OUT_SPEED 115200
-#define SERIAL_DEFAULT_GPS_SPEED 115200 //on the px1172rh here
+#define SERIAL_DEFAULT_GPS_SPEED 460800 //on the px1172rh here
 #define SERIAL_DEFAULT_IMU_SPEED 115200
 
 
