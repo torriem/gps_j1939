@@ -13,6 +13,7 @@
  */
 
 #include <math.h>
+#include "defaults.h"
 #include "globals.h"
 #include "circle_generator.h"
 #include "static_position.h"
@@ -22,7 +23,6 @@
 #include "nmea_checksum.h"
 #include "whichteensy.h"
 #ifndef TEENSY
-#include <BluetoothSerial.h> //ESP32 only
 #include <elapsedMillis.h>
 #endif
 #include "can.h"
@@ -34,47 +34,11 @@
 #include "nmea_vtg.h"
 #include "nmea_rmc.h"
 
-uint8_t serial_buffer[1024]; //overkill hopefully
 
-#define RADIANS(deg) deg * M_PI / 180.0
-#define DEGREES(rad) rad * 180.0 / M_PI
-#define INCHES 0.0254
-#define FEET 0.3048
-
-//types of GPS
-#define GPS_PX1172RH 1 //dual gps from px1172rh
-//#define GPS_DUAL_F9P //FUTURE: dual F9P support
-#define GPS_NMEA_BNO 3  //single GPS GGA+VTG and the BNO08x
-
-//types of virtual position generators
-#define VIRTUAL_NONE 0 //no virtual position generation
-#define VIRTUAL_CIRCLE 10 //simulate moving in a perfect circle
-#define VIRTUAL_STATIC 11 //arbitrary static position.
-
-#define GPS_TIMEOUT 400 //after 200ms of no GPS position, show "No GPS" on monitor
-
-uint8_t gps_source = GPS_NMEA_BNO;
-uint8_t virtual_source = VIRTUAL_NONE;
-
-uint8_t spinner_state = 0;
+uint8_t gps_source = GPS_DEFAULT_SOURCE;
+uint8_t virtual_source = GPS_DEFAULT_VIRTUAL_SOURCE;
 
 elapsedMillis last_good_fix;
-
-//TODO move these to serial_config.c
-#if defined(ESP32)
-
-    BluetoothSerial SerialBT;
-    HardwareSerial SerialIMU(1);
-    HardwareSerial SerialGPS(2);
-
-#elif defined(TEENSY)
-
-     uint8_t serialgps_buffer[1024];
-#    define SerialIMU Serial
-#    define SerialGPS Serial3
-#    define SerialOut Serial5
-
-#endif
 
 SerialCSV debug_csv;
 BNORVC bno_rvc;
@@ -84,9 +48,10 @@ void on_new_position(void) {
 	last_good_fix = 0;
 
 	//TODO move these generate calls somewhere
-	nmea_rmc.generate();
 	nmea_gga.generate();
 	nmea_gga_uncorrected.generate();
+	nmea_rmc.generate();
+	nmea_rmc_uncorrected.generate();
 	nmea_vtg.generate();
 
 	//send to CAN bus
@@ -102,19 +67,6 @@ void on_new_position(void) {
 	serialout_nmea.send_position(process_imu);
 	debug_csv.send_position(bno_rvc);
 	//Serial.println(timer);
-
-	/*
-	message_count ++;
-	if (message_count == 5) {
-		//every 5 message sets, send the configuration
-		//messages.
-		message_count = 0;
-		serial_config::send_nmea(process_imu);
-
-		//send imu config
-		//send gps config
-	}
-	*/
 }
 
 void on_no_position(void) {
@@ -128,21 +80,16 @@ void process_imu() {
 
 void setup()
 {
+	Serial.begin(115200);
+	delay(2000);
 
-	//TODO: store serial input baud rates in flash
-	//allow them to be changed.  And move this code to a
-	//setup() in a serial module
+	//set up ports
+	serial_config::setup();
+
+
+
 #if defined(ESP32)
-	Serial.begin(serial_config::serialout_baud);
-	SerialGPS.begin(serial_config::gps_baud,SERIAL_8N1,25,14);
-	SerialGPS.setRxBufferSize(1024);
-	SerialIMU.begin(serial_config::imu_baud,SERIAL_8N1,27,16);
-	SerialIMU.setRxBufferSize(1024);
-
-	//TODO: store bt name and output serial baud rates
-	//in flash, and allow them to be changed.
-	SerialBT.begin("rovertest");
-
+	Serial.println("gps_j1939 on ESP32");
 	//set up output streams
 	bluetooth_nmea.set_stream(&SerialBT);
 	serialout_nmea.set_stream(&Serial);
@@ -151,11 +98,7 @@ void setup()
 	bluetooth_nmea.set_vtg_interval(5);
 	bluetooth_nmea.set_corrected(true);
 #elif defined(TEENSY)
-	Serial.begin(115200);
-	SerialGPS.addMemoryForRead(serial_buffer,1024);
-	SerialGPS.begin(serial_config::gps_baud);
-	SerialIMU.begin(serial_config::imu_baud);
-	SerialOut.begin(serial_config::serialout_baud);
+	Serial.println("gps_j1939 on Teensy");
 
 	CAN::setup(); //set up the CAN interface
 	LCD::setup(); //set up LCD if enabled
@@ -171,7 +114,6 @@ void setup()
 	serialusb_nmea.set_corrected(true);
 
 #endif
-
 	//set BNO to read data from SerialIMU
 	bno_rvc.set_uart(&SerialIMU);
 
@@ -189,10 +131,8 @@ void setup()
 	//contain our present settings, ultimately to help
 	//configure and control over a serial port, perhaps
 	//through another ESP32 if this was running on a teensy.
-	delay(2000);
 	Serial.println("configuring config sentences.");
 	serial_config::generate_nmea();
-	Serial.println("gps_j1939 on ESP32");
 	gps_latitude = 0;
 	gps_longitude = 0;
 
