@@ -202,7 +202,7 @@ static void PSTI_handler() {
 		got_attitude = true;
 
 		parser.getArg(6,dual_mode);
-		Serial.println(dual_mode);
+		//Serial.println(dual_mode);
 		if (dual_mode[0] != 'R' && dual_mode[0] != 'F') {
 			//we have insufficient fix quality to do dual GPS
 			//or there's no second antenna plugged in.
