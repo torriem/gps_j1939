@@ -5,7 +5,7 @@
 
 namespace px1172rh {
 	void setup(FixHandler fix_handler);
-	void set_on_fix(FixHandler fix_handler);
+	void set_on_fix_handler(FixHandler fix_handler);
 	void process_byte(char c);
 }
 

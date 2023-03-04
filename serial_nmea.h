@@ -19,7 +19,7 @@ protected:
 	static constexpr char *vtg_str = "vtg";
 	static constexpr char *cfg_str = "cfg";
 	static constexpr char *none = "";
-	
+
 public:
 	SerialNMEA(int id_no, const char *name, Stream *stream);
 
