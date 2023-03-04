@@ -57,12 +57,13 @@ namespace serial_config {
 	 
 #if defined(ESP32)	
 		snprintf(sc_nmea_buffer, SC_BUFFER_LEN,
-		         "$PTSER,%d,%s,%s,%s,%s,%s",
+		         "$PTSER,%d,%s,%s,%d,%d,%d,%d",
 			 0, F("Bluetooth"),
 			 bt_name,
-			 bluetooth_nmea.get_gga(),
-			 bluetooth_nmea.get_vtg(),
-			 bluetooth_nmea.get_cfg());
+			 bluetooth_nmea.get_gga_interval(),
+			 bluetooth_nmea.get_vtg_interval(),
+			 serialout_nmea.get_rmc_interval(),
+			 bluetooth_nmea.get_cfg_interval());
 
 		//add checksum and CRLF
 		compute_nmea_checksum(sc_nmea_buffer, checksum);
@@ -72,12 +73,13 @@ namespace serial_config {
 		msg = sc_nmea_buffer + msg_len;
 
 		snprintf(msg, SC_BUFFER_LEN - msg_len,
-		         "$PTSER,%d,%s,%d,%s,%s,%s",
+		         "$PTSER,%d,%s,%d,%d,%d,%d,%d",
 			 1, F("Serial1"),
 			 serialout_baud,
-			 serialout_nmea.get_gga(),
-			 serialout_nmea.get_vtg(),
-			 serialout_nmea.get_cfg());
+			 serialout_nmea.get_gga_interval(),
+			 serialout_nmea.get_vtg_interval(),
+			 serialout_nmea.get_rmc_interval(),
+			 serialout_nmea.get_cfg_interval());
 		//add checksum and CRLF
 		compute_nmea_checksum(msg, checksum);
 		strncat(msg, checksum, SC_BUFFER_LEN - msg_len);
@@ -85,12 +87,13 @@ namespace serial_config {
 
 #elif defined (TEENSY)
 		snprintf(sc_nmea_buffer, SC_BUFFER_LEN,
-		         "$PTSER,%d,%s,%d,%s,%s,%s",
+		         "$PTSER,%d,%s,%d,%d,%d,%d,%d",
 			 0, "SerialUSB",
 			 115200,
-			 serialusb_nmea.get_gga(),
-			 serialusb_nmea.get_vtg(),
-			 serialusb_nmea.get_cfg());
+			 serialusb_nmea.get_gga_interval(),
+			 serialusb_nmea.get_vtg_interval(),
+			 serialout_nmea.get_rmc_interval(),
+			 serialusb_nmea.get_cfg_interval());
 
 		//add checksum and CRLF
 		compute_nmea_checksum(sc_nmea_buffer, checksum);
@@ -102,45 +105,18 @@ namespace serial_config {
 		msg = sc_nmea_buffer + msg_len;
 
 		snprintf(msg, SC_BUFFER_LEN - msg_len,
-		         "$PTSER,%d,%s,%d,%s,%s,%s",
+		         "$PTSER,%d,%s,%d,%d,%d,%d,%d",
 			 1, F("SerialOut"),
 			 serialout_baud,
-			 "gga",
-			 "vtg",
-			 "cfg"
-			 /*serialout_nmea.get_gga(),
-			 serialout_nmea.get_vtg(),
-			 serialout_nmea.get_cfg()*/);
+	 		 serialout_nmea.get_gga_interval(),
+			 serialout_nmea.get_vtg_interval(),
+			 serialout_nmea.get_rmc_interval(),
+			 serialout_nmea.get_cfg_interval());
 		//add checksum and CRLF
 		compute_nmea_checksum(msg, checksum);
 		strncat(msg, checksum, SC_BUFFER_LEN - msg_len);
 		strncat(sc_nmea_buffer,"\r\n", SC_BUFFER_LEN - msg_len);
 #endif
-	}
-		
-	void send_nmea(scfg_process_imu process_imu) {
-#if defined(ESP32)
-		if (bluetooth_nmea.is_active_cfg()) {
-			bluetooth_nmea.send_string(sc_nmea_buffer, strlen(sc_nmea_buffer));
-		}
-#endif
-		//because serial writing blocks sometimes, we should process
-		//the IMU since it comes in at 100hz
-		if(process_imu) process_imu();
-
-		if (serialout_nmea.is_active_cfg()) {
-			serialout_nmea.send_string(sc_nmea_buffer, strlen(sc_nmea_buffer));
-		}
-		//because serial writing blocks sometimes, we should process
-		//the IMU since it comes in at 100hz
-		if(process_imu) process_imu();
-
-#if defined(TEENSY)
-		if (serialusb_nmea.is_active_cfg()) {
-			serialusb_nmea.send_string(sc_nmea_buffer, strlen(sc_nmea_buffer));
-		}
-#endif
-
 	}
 
 	const char *get_nmea() {
