@@ -62,7 +62,11 @@ void SerialNMEA::send_position (sn_process_imu process_imu) {
 		rmc_count++;
 		if (rmc_count == rmc_interval) {
 			rmc_count = 0;
-			msg = nmea_rmc.get_nmea();
+			if (this->imu_corrected) {
+				msg = nmea_rmc.get_nmea();
+			} else {
+				msg = nmea_rmc_uncorrected.get_nmea();
+			}
 			dest->write(msg,strlen(msg));
 		}
 	}
