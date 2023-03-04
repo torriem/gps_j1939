@@ -17,6 +17,7 @@ protected:
 	BNO08x_RVC_Data rvc_data[BNO_MAX_LOOKBACK];
 	int current_rvc = 0;
 	elapsedMillis imu_timer;
+	Stream *uart;
 
 public:
 	BNORVC();

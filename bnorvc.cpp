@@ -9,8 +9,10 @@ BNORVC::BNORVC() {
 
 }
 
-void BNORVC::set_uart(Stream *uart) {
+void BNORVC::set_uart(Stream *which_uart) {
 	current_rvc = 0;
+	uart = which_uart;
+
 	for (int i=0; i < BNO_MAX_LOOKBACK; i++) {
 		rvc_data[i].yaw = 400; //mark invalid
 	}
@@ -21,14 +23,18 @@ void BNORVC::set_uart(Stream *uart) {
 }
 
 void BNORVC::process_data(void) {
-	if(rvc.read(&rvc_data[current_rvc]) ) {
-		current_rvc = (current_rvc + 1) % BNO_MAX_LOOKBACK;
-		imu_timer = 0;
-	} else if (imu_timer > 12) {
-		//if 12 ms has elapsed, IMU must have gone silent
-		imu_timer = 0;
-		rvc_data[current_rvc].yaw = 400; //mark invalid
-		current_rvc = (current_rvc + 1) % BNO_MAX_LOOKBACK;
+	while(uart->available()) {
+		if(rvc.read(&rvc_data[current_rvc]) ) {
+			current_rvc = (current_rvc + 1) % BNO_MAX_LOOKBACK;
+			imu_timer = 0;
+		} else if (imu_timer > 100) {
+			//if 100 ms has elapsed, IMU must have gone silent
+			//don't want to cut this too short because messages could
+			//be in the buffer
+			imu_timer = 0;
+			rvc_data[current_rvc].yaw = 400; //mark invalid
+			current_rvc = (current_rvc + 1) % BNO_MAX_LOOKBACK;
+		}
 	}
 }
 
