@@ -159,7 +159,7 @@ template <size_t S> class NMEAParser {
     /*
        Call the error handler if defined
     */
-    void callErrorHandler(void)
+    inline void callErrorHandler(void)
     {
       if (mErrorHandler != NULL) {
         mErrorHandler();
@@ -169,7 +169,7 @@ template <size_t S> class NMEAParser {
     /*
        Called when the parser encounter a char that should not be there
     */
-    void unexpectedChar()
+    inline void unexpectedChar()
     {
       mError = NMEA::UNEXPECTED_CHAR;
       callErrorHandler();
@@ -179,7 +179,7 @@ template <size_t S> class NMEAParser {
     /*
        Called when the buffer is full because of a malformed sentence
     */
-    void bufferFull()
+    inline void bufferFull()
     {
       mError = NMEA::BUFFER_FULL;
       callErrorHandler();
@@ -189,7 +189,7 @@ template <size_t S> class NMEAParser {
     /*
        Called when the type of the sentence is longer than 5 characters
     */
-    void typeTooLong()
+    inline void typeTooLong()
     {
       mError = NMEA::TYPE_TOO_LONG;
       callErrorHandler();
@@ -198,7 +198,7 @@ template <size_t S> class NMEAParser {
     /*
        Called when the CRC is wrong
     */
-    void crcError()
+    inline void crcError()
     {
       mError = NMEA::CRC_ERROR;
       callErrorHandler();
@@ -208,7 +208,7 @@ template <size_t S> class NMEAParser {
     /*
        Called when the state of the parser is not ok
     */
-    void internalError()
+    inline void internalError()
     {
       mError = NMEA::INTERNAL_ERROR;
       callErrorHandler();
@@ -218,7 +218,7 @@ template <size_t S> class NMEAParser {
     /*
        retuns true is there is at least one byte left in the buffer
     */
-    bool spaceAvail()
+    inline bool spaceAvail()
     {
       return (mIndex < mArgIndex);
     }
@@ -247,7 +247,7 @@ template <size_t S> class NMEAParser {
     /*
        return the slot number for a handler. -1 if not found
     */
-    int8_t getHandler(const char *inToken)
+    inline int8_t getHandler(const char *inToken)
     {
       /* Look for the token */
       for (uint8_t i = 0; i < mHandlerCount; i++) {
@@ -323,7 +323,7 @@ template <size_t S> class NMEAParser {
     /*
       Reset the parser
     */
-    void reset() {
+    inline void reset() {
       mState = INIT;
       mIndex = 0;
       mArgIndex = kSentenceMaxSize;
@@ -412,6 +412,12 @@ template <size_t S> class NMEAParser {
             else bufferFull();
           }
           else {
+	    //we could check the message type here and if
+	    //it's not one we're interested in, reset and stop
+	    //computing the CRC. This might be abusing getHandler
+	    //a bit but it is hard-wired to stop at 5 characters.
+	    mBuffer[mIndex] = 0;  //should be safe; it will be over-written
+	    if(getHandler(mBuffer) < 0) reset();
             switch (inChar) {
               case ',' :
                 mComputedCRC ^= inChar;
