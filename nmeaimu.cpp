@@ -69,21 +69,25 @@ static inline void process_imu(void) {
 	got_vtg = false;
 
 	//look at older IMU position
-	if (imu)
+	if (imu) {
 		yaw = imu->get_yaw(imu_lookback);
-	else
+		if (yaw < 0 ) yaw += 360;
+	} else
 		yaw = 400;
+
+	imu_last_yaw = yaw;
 
 	gps_orig_latitude = gps_latitude;
 	gps_orig_longitude = gps_longitude;
+	gps_orig_heading = vtg_head;
 
 	if (use_imu && yaw < 400) {
 		//if we have a valid IMU reading, calculate the IMU
 		//heading offset and do roll compensation.
 		
-		gps_roll = imu->get_roll(imu_lookback); //already offset
+		//gps_roll should already be read
 
-		if(!imu_heading_offset_set && gps_speed <= MIN_VTG_SPEED) {
+		if(imu_heading_offset > 360 && gps_speed <= MIN_VTG_SPEED) {
 			//calculate heading based on fix to fix
 			//use that to figure out IMU heading offset
 			if (last_lat < 400) {
@@ -107,11 +111,14 @@ static inline void process_imu(void) {
 			new_offset = vtg_head - yaw;
 			if (new_offset < 0) new_offset += 360;
 
-			if (!imu_heading_offset_set) {
+			if (imu_heading_offset > 360) {
+				//if heading offset is not already set, we need to set it here.
 				imu_heading_offset_set = true;
 				imu_heading_offset  = new_offset;
 			} else {
+				//heading offset is set, let's refine it.
 				if (fabs(new_offset - imu_heading_offset) > 150) {
+					Serial.println("Reversed.");
 					//probably driving in reverse
 					new_offset -= 180;
 					if (new_offset < 0) new_offset += 360;
@@ -193,6 +200,7 @@ static void GGA_handler() {
 		got_vtg = false;
 		nmea_timer = 0; //??
 	}
+	gps_roll = imu->get_roll(imu_lookback); //already offset
 
 	got_gga = true;
 
