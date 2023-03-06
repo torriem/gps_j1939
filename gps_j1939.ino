@@ -67,11 +67,13 @@ void on_new_position(void) {
 	serialout_nmea.send_position(process_imu);
 	debug_csv.send_position(bno_rvc);
 	//Serial.println(timer);
+	//Serial.println(last_good_fix);
 }
 
 void on_no_position(void) {
 	//It's been 400 ms since last fix, so assume GPS is lost
 	CAN::send_no_position();
+	last_good_fix = 0;
 }
 
 void process_imu() {
@@ -105,7 +107,7 @@ void setup()
 
 	//set up output streams
 	serialusb_nmea.set_stream(&Serial);
-	//serialout_nmea.set_stream(&SerialOut);
+	serialout_nmea.set_stream(&SerialOut);
 
 	serialusb_nmea.set_gga_interval(1);
 	serialusb_nmea.set_vtg_interval(1);
@@ -117,7 +119,7 @@ void setup()
 	//set BNO to read data from SerialIMU
 	bno_rvc.set_uart(&SerialIMU);
 
-	debug_csv.set_stream(&Serial);
+	//debug_csv.set_stream(&Serial);
 
 	serialout_nmea.set_gga_interval(1);
 	serialout_nmea.set_vtg_interval(1);
@@ -214,6 +216,7 @@ void loop()
 		//now process serial bytes that have accumulated
 		while(SerialGPS.available()) {
 			c = SerialGPS.read();
+			//Serial.write(c);
 
 			if (virtual_source) {
 				/* ignore real GPS while virtual positions are
