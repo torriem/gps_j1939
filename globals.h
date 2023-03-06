@@ -69,6 +69,8 @@ extern int imu_lookback;
 //400 if not known.  Read only
 extern float imu_last_roll;
 
+extern float imu_last_yaw;
+
 /*****************************
  * GPS configuration and state 
  *****************************/
@@ -77,6 +79,7 @@ extern double gps_latitude;
 extern double gps_longitude;
 extern double gps_orig_latitude;
 extern double gps_orig_longitude;
+extern double gps_orig_heading;
 extern double gps_heading;
 extern double gps_speed;
 extern double gps_altitude;

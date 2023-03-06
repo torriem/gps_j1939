@@ -23,6 +23,7 @@ bool imu_heading_offset_set = false;
 float imu_heading_offset = 400;
 int imu_lookback = IMU_DEFAULT_LOOKBACK;
 float imu_last_roll = 0;
+float imu_last_yaw = 400;
 
 /*****************************
  * GPS configuration and state 
@@ -33,6 +34,7 @@ double gps_longitude;
 double gps_orig_latitude;
 double gps_orig_longitude;
 double gps_heading;
+double gps_orig_heading;
 double gps_speed;
 double gps_altitude;
 double gps_orig_altitude;
