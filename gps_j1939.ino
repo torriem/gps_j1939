@@ -109,11 +109,11 @@ void setup()
 	serialusb_nmea.set_stream(&Serial);
 	serialout_nmea.set_stream(&SerialOut);
 
-	serialusb_nmea.set_gga_interval(1);
-	serialusb_nmea.set_vtg_interval(1);
-	serialusb_nmea.set_rmc_interval(1);
-	serialusb_nmea.set_cfg_interval(5);
-	serialusb_nmea.set_corrected(true);
+	//serialusb_nmea.set_gga_interval(1);
+	//serialusb_nmea.set_vtg_interval(1);
+	//serialusb_nmea.set_rmc_interval(1);
+	//serialusb_nmea.set_cfg_interval(5);
+	//serialusb_nmea.set_corrected(true);
 
 #endif
 	//set BNO to read data from SerialIMU
@@ -154,8 +154,13 @@ void setup()
 void loop()
 {
 	char c;
+
+	elapsedMillis mt;
+	elapsedMillis blank;
+	bool in_set;
 	
-	unsigned long t;
+	mt = 0;
+	in_set = false;
 
 	// virtual position generators
 	//TODO: fix virtual sources to have a callback 
@@ -175,11 +180,8 @@ void loop()
 		if (last_good_fix > GPS_TIMEOUT) {
 			on_no_position();
 		}
-		
-		LCD::heartbeat();
 
-		t = millis();
-
+		/*
 		switch(virtual_source) {
 		//TODO: fix virtual sources to have a callback 
 		case VIRTUAL_CIRCLE:
@@ -201,22 +203,28 @@ void loop()
 				virtual_source = VIRTUAL_NONE;
 			break;
 		}
-
-#if defined(ESP32)	
-		//process bluetooth ntrip
-		while (SerialBT.available())
-		{
-			SerialGPS.write(SerialBT.read());
-		}
-#endif
+		*/
 
 		//process IMU data
 		//bno_rvc.process_data();
 
+		if (mt > 90) {
+			//more than 90 ms elapsed since the beginning of the
+			//NMEA message cluster.  We must be between frames
+			in_set = false;
+		}
+
 		//now process serial bytes that have accumulated
 		while(SerialGPS.available()) {
 			c = SerialGPS.read();
-			//Serial.write(c);
+			if (c == '$' and in_set == false) {
+				//if we've seen the beginning of a message
+				in_set = true;
+				Serial.println(mt); //hopefully this number is consistent
+				mt = 0; //reset counter
+			}
+			//Serial.print(c);
+			Serial.write(c);
 
 			if (virtual_source) {
 				/* ignore real GPS while virtual positions are
@@ -233,5 +241,15 @@ void loop()
 				break;
 			}
 		}
+
+#if defined(ESP32)	
+		//process bluetooth ntrip
+		while (SerialBT.available())
+		{
+			SerialGPS.write(SerialBT.read());
+		}
+#endif
+
+		LCD::heartbeat();
 	}
 }
