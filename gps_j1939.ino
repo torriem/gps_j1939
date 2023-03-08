@@ -157,10 +157,9 @@ void loop()
 
 	elapsedMillis mt;
 	elapsedMillis blank;
-	bool in_set;
+	int mtype_i = 0;
 	
 	mt = 0;
-	in_set = false;
 
 	// virtual position generators
 	//TODO: fix virtual sources to have a callback 
@@ -208,23 +207,52 @@ void loop()
 		//process IMU data
 		//bno_rvc.process_data();
 
-		if (mt > 90) {
-			//more than 90 ms elapsed since the beginning of the
+		/*
+		if (mt > 80) {
+			//more than 80 ms elapsed since the beginning of the
 			//NMEA message cluster.  We must be between frames
 			in_set = false;
 		}
+		*/
 
 		//now process serial bytes that have accumulated
 		while(SerialGPS.available()) {
 			c = SerialGPS.read();
-			if (c == '$' and in_set == false) {
-				//if we've seen the beginning of a message
-				in_set = true;
-				Serial.println(mt); //hopefully this number is consistent
-				mt = 0; //reset counter
+
+			//watch for the $G-GGA NMEA message for timing purposes
+			if (c == '$') {
+				mtype_i = 0;
+			} else if (mtype_i < 5) {
+				//Look for GGA message type for timing.  GGA nearly 
+				//always is near the first of the messages sent in
+				//each bundle.
+				switch(mtype_i) {
+				case 0:
+				case 2:
+				case 3:
+					//If we aren't matching G_GGA, then this
+					//is not the message we're timing off of.
+					if (c != 'G')
+						mtype_i = 5;
+					break;
+				case 4:
+					if (c == 'A') {
+						//Start our timing from this point
+						//so fetch the IMU reading we're going
+						//to use for this set of messages.
+						//TODO: is this still going to give us consistent timing?
+						Serial.println(mt);
+						//TODO: make this go through base case for generic code
+						process_imu();
+						imu_current_roll = bno_rvc.get_roll_ave(imu_lookback, imu_window);
+						imu_current_pitch = bno_rvc.get_pitch(imu_lookback);
+						imu_current_yaw = bno_rvc.get_pitch(imu_lookback);
+						Serial.println(mt);
+						mt = 0;
+					}
+				}
+				mtype_i ++;
 			}
-			//Serial.print(c);
-			Serial.write(c);
 
 			if (virtual_source) {
 				/* ignore real GPS while virtual positions are
