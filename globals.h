@@ -65,11 +65,14 @@ extern float imu_heading_offset;
 //in milliseconds
 extern int imu_lookback;
 
-//last IMU roll reading used to correct GPS, if known.
-//400 if not known.  Read only
-extern float imu_last_roll;
+//number of imu readings to average for roll, pitch, and yaw
+extern int imu_window;
 
-extern float imu_last_yaw;
+//should contain the most recent imu values that terrain compensation will
+//use.  
+extern float imu_current_roll;
+extern float imu_current_yaw;
+extern float imu_current_pitch;
 
 /*****************************
  * GPS configuration and state 
