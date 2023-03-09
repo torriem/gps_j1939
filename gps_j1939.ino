@@ -240,8 +240,6 @@ void loop()
 						//Start our timing from this point
 						//so fetch the IMU reading we're going
 						//to use for this set of messages.
-						//TODO: is this still going to give us consistent timing?
-						Serial.println(mt);
 						//TODO: make this go through base case for generic code
 						process_imu();
 						imu_current_roll = bno_rvc.get_roll_ave(imu_lookback, imu_window);
