@@ -121,20 +121,24 @@ static inline void process_imu(void) {
 			if (gps_heading < 0) gps_heading += 360;
 		} else {
 			//no offset yet calculated, so throw in the VTG heading
+			Serial.println("no imu heading offset known.");
 			gps_heading = vtg_head;
 		}
 
-		roll_rad = gps_roll * M_PI / 180.0;
 	} else {
-		//we either don't have an IMU or we haven't read it yet
-		//so don't do roll compensation, but do adjust the GPS
-		//as best we can to the center of the tractor from its
-		//potentially offset position.
-		
-		roll_rad = 0;
+		//no valid IMU heading numbers yet.
 		gps_heading = vtg_head;
-		gps_roll = 0;
+
+		if (gps_roll > 360) {
+			//if no valid IMU roll numbers, do without terrain
+			//compensation, although any antenna offset adjustments
+			//will be wildly incorrect.
+			roll_rad = 0;
+			gps_roll = 0;
+		}
 	}
+
+	roll_rad = gps_roll * M_PI / 180.0;
 
 	//do roll compensation and adjust lat and lon for the 
 	//offsets of the GPS unit
