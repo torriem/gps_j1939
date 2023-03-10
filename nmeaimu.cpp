@@ -1,5 +1,6 @@
 #include "nmeaimu.h"
 #include "globals.h"
+#include "defaults.h"
 #include "whichteensy.h"
 #ifndef TEENSY
 #include <elapsedMillis.h>
@@ -12,11 +13,6 @@
 #include "shared_nmea_buffer.h"
 #include "imubase.h"
 	
-//minimum speed to use VTG to calculate IMU heading offset
-#define MIN_VTG_SPEED 0.5 //kph
-//minimum fix to fix distance to calculate a heading
-#define MIN_FIX_DIST 3 //metre
-
 static double last_lat = 400;
 static double last_lon = 400;
 //static KFilter1 yawrate_filter(0.1, 1.0f, 0.0003f);
@@ -115,13 +111,12 @@ static inline void process_imu(void) {
 			imu_heading_offset = 0.7*imu_heading_offset + 0.3*new_offset;
 		}		
 
-		if(imu_heading_offset_set) {
+		if(imu_heading_offset < 400) {
 			//Use the IMU heading instead of the pure VTG heading
 			gps_heading = fmod(imu_current_yaw + imu_heading_offset,360);
 			if (gps_heading < 0) gps_heading += 360;
 		} else {
 			//no offset yet calculated, so throw in the VTG heading
-			Serial.println("no imu heading offset known.");
 			gps_heading = vtg_head;
 		}
 
