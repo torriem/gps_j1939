@@ -211,7 +211,11 @@ static void PSTI_handler() {
 			//or there's no second antenna plugged in.
 
 			got_good_attitude = false;
-			gps_roll = 0.0;
+			if (imu_current_roll < 400) {
+				gps_roll = imu_current_roll;
+			} else {
+				gps_roll = 0.0;
+			}
 			//heading will yet be or is already set by the PSTI,030 
 			//parser above.
 		} else {
