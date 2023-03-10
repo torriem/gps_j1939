@@ -118,8 +118,7 @@ void setup()
 #endif
 	//set BNO to read data from SerialIMU
 	bno_rvc.set_uart(&SerialIMU);
-
-	//debug_csv.set_stream(&Serial);
+	debug_csv.set_stream(&Serial);
 
 	serialout_nmea.set_gga_interval(1);
 	serialout_nmea.set_vtg_interval(1);
@@ -244,9 +243,10 @@ void loop()
 						process_imu();
 						imu_current_roll = bno_rvc.get_roll_ave(imu_lookback, imu_window);
 						imu_current_pitch = bno_rvc.get_pitch(imu_lookback);
-						imu_current_yaw = bno_rvc.get_pitch(imu_lookback);
-						Serial.println(mt);
-						mt = 0;
+						imu_current_yaw = bno_rvc.get_yaw(imu_lookback);
+
+						//Serial.println(mt);
+						//mt = 0;
 					}
 				}
 				mtype_i ++;
