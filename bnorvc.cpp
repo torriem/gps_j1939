@@ -83,6 +83,12 @@ float BNORVC::get_roll_ave(int lookback_ms, int qave = 3) {
 	int offset = (lookback_ms / 10);
 	int start, end;
 
+	float scale = (imu_reverse ? -1 : 1);
+	//temporary for debugging
+	for (int i=0; i < 20 ; i++) {
+		imu_roll_buffer[i] = (rvc_data[(current_rvc + i) % BNO_MAX_LOOKBACK].roll + imu_roll_offset) * scale;
+	}
+
 	//make sure the window is inside the buffer. Note that
 	//end is the youngest time and start is the oldest
 	end = offset + qave / 2;
@@ -117,6 +123,7 @@ float BNORVC::get_roll_ave(int lookback_ms, int qave = 3) {
 }
 
 float BNORVC::get_roll(int lookback_ms) {
+
 	return get_roll_ave(lookback_ms, 3);
 }
 

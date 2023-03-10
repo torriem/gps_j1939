@@ -74,6 +74,8 @@ extern float imu_current_roll;
 extern float imu_current_yaw;
 extern float imu_current_pitch;
 
+extern float imu_roll_buffer[];
+
 /*****************************
  * GPS configuration and state 
  *****************************/

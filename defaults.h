@@ -54,6 +54,11 @@
 #define IMU_DEFAULT_LOOKBACK 90
 #define IMU_DEFAULT_WINDOW 3
 
+//minimum speed to use VTG to calculate IMU heading offset
+#define MIN_VTG_SPEED 0.5 //kph
+//minimum fix to fix distance to calculate a heading
+#define MIN_FIX_DIST 3 //metre
+
 //Serial ports
 #if defined(TEENSY)
 #define SERIAL_DEFAULT_IMU Serial //for testing, otherwise use Serial4
