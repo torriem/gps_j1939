@@ -44,7 +44,7 @@
 #define ANTENNA_DEFAULT_RIGHT 26.5 * INCHES
 
 //GPS
-#define GPS_DEFAULT_SOURCE GPS_NMEA_BNO // GPS_PX1172RH
+#define GPS_DEFAULT_SOURCE GPS_PX1172RH //GPS_NMEA_BNO // GPS_PX1172RH
 #define GPS_TIMEOUT 1000 //how long to wait until sending "No GPS messages."
 #define GPS_DEFAULT_VIRTUAL_SOURCE VIRTUAL_NONE
 
@@ -61,7 +61,7 @@
 
 //Serial ports
 #if defined(TEENSY)
-#define SERIAL_DEFAULT_IMU Serial //for testing, otherwise use Serial4
+#define SERIAL_DEFAULT_IMU Serial //for testing been using USB Serial input, normally use Serial4
 #define SERIAL_DEFAULT_GPS Serial3
 #define SERIAL_DEFAULT_OUT Serial5
 
