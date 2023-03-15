@@ -76,12 +76,21 @@ static inline void process_imu(void) {
 				if (haversine::distance(last_lat, last_lon,
 				                        gps_latitude,
 						        gps_longitude) > MIN_FIX_DIST) {
-					gps_heading = haversine::bearing(
+					gps_heading = haversine::bearing_degrees(
 					                         last_lat, last_lon,
 							         gps_latitude, gps_longitude);
 					imu_heading_offset = gps_heading - imu_current_yaw;
-					if (imu_heading_offset < 0) imu_heading_offset += 360;
-					imu_heading_offset_set = true;
+					if (new_offset > 180) new_offset -= 360;
+					if (new_offset < -180) new_offset += 360;
+					//if (imu_heading_offset < 0) imu_heading_offset += 360;
+					/*
+					Serial.print("heading offset set from fix to fix: ");
+					Serial.print(gps_heading);
+					Serial.print("-");
+					Serial.print(imu_current_yaw);
+					Serial.print("=");
+					Serial.println(imu_heading_offset);
+					*/
 				}
 
 			} else {
@@ -90,13 +99,25 @@ static inline void process_imu(void) {
 			}
 		} else if (gps_speed > MIN_VTG_SPEED) {
 			//if we're moving, calculate an IMU to real heading offset
+
+			//if vtg heading has changed dramatically, but if the raw imu yaw has
+			//not changed significantly, we must be reversing.
+
 			new_offset = vtg_head - imu_current_yaw;
-			if (new_offset < 0) new_offset += 360;
+			if (new_offset > 180) new_offset -= 360;
+			if (new_offset < -180) new_offset += 360;
 
 			if (imu_heading_offset > 360) {
 				//if heading offset is not already set, we need to set it here.
-				imu_heading_offset_set = true;
+				//hopefully we're going forward at this time.  If not, what to do
+				//TODO: figure out better reverse logic
 				imu_heading_offset  = new_offset;
+				Serial.print("heading offset set from vtg: ");
+				Serial.print(gps_heading);
+				Serial.print("-");
+				Serial.print(imu_current_yaw);
+				Serial.print("=");
+				Serial.println(imu_heading_offset);
 			} else {
 				//heading offset is set, let's refine it.
 				if (fabs(new_offset - imu_heading_offset) > 150) {
