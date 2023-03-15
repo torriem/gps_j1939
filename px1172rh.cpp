@@ -115,11 +115,14 @@ static void PSTI_handler() {
 
 	heading90 = 0;
 	parser.getArg(0,pstinum);
+
+	//NOTE that usually there is about 90 ms between the psti,030 message and the psti,036 message.
+	//The maximum message rate for dual GPS with heading is 8 hz (125ms between groups of messages)
 	
 	if(pstinum == 30) {
-		if (nmea_timer > 80) {
-			//if at least 80 ms has elapsed since the last 
-			//NMEA message, we need to look again for VTG
+		if (nmea_timer > 100) {
+			//if at least 100 ms has elapsed since the last 
+			//NMEA message, we need to look again for the other PSTI message.
 			got_attitude = false;
 			nmea_timer = 0; //??
 		}
@@ -193,8 +196,8 @@ static void PSTI_handler() {
 	}
 
 	if (pstinum == 36) {
-		if (nmea_timer > 80) {
-			//if at least 80 ms has elapsed since the last 
+		if (nmea_timer > 100) {
+			//if at least 100 ms has elapsed since the last 
 			//NMEA message, we need to look again for VTG
 			got_pos = false;
 			nmea_timer = 0; //??
@@ -208,7 +211,11 @@ static void PSTI_handler() {
 			//or there's no second antenna plugged in.
 
 			got_good_attitude = false;
-			gps_roll = 0.0;
+			if (imu_current_roll < 400) {
+				gps_roll = imu_current_roll;
+			} else {
+				gps_roll = 0.0;
+			}
 			//heading will yet be or is already set by the PSTI,030 
 			//parser above.
 		} else {

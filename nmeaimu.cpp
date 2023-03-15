@@ -1,5 +1,6 @@
 #include "nmeaimu.h"
 #include "globals.h"
+#include "defaults.h"
 #include "whichteensy.h"
 #ifndef TEENSY
 #include <elapsedMillis.h>
@@ -10,14 +11,8 @@
 //#include "SimpleKalmanFilter.h"
 #include <math.h>
 #include "shared_nmea_buffer.h"
-#include "nmea_checksum.h"
 #include "imubase.h"
 	
-//minimum speed to use VTG to calculate IMU heading offset
-#define MIN_VTG_SPEED 0.5 //kph
-//minimum fix to fix distance to calculate a heading
-#define MIN_FIX_DIST 3 //metre
-
 static double last_lat = 400;
 static double last_lon = 400;
 //static KFilter1 yawrate_filter(0.1, 1.0f, 0.0003f);
@@ -54,12 +49,9 @@ static char vtg_heading[12] = { };
 static char vtg_speed_knots[10] = { };
 static float vtg_head;
 
-static char checksum[5]; //* plus 2 byte checksum plus 2 CRLF bytes
-
 static inline void process_imu(void) {
 	float heading_delta;
 	double roll_rad;
-	double yaw;
 	double heading90;
 	double tilt_offset;
 	double center_offset;
@@ -68,38 +60,37 @@ static inline void process_imu(void) {
 	got_gga = false;
 	got_vtg = false;
 
-	//look at older IMU position
-	if (imu) {
-		yaw = imu->get_yaw(imu_lookback);
-		if (yaw < 0 ) yaw += 360;
-	} else
-		yaw = 400;
-
-	imu_last_yaw = yaw;
-
 	gps_orig_latitude = gps_latitude;
 	gps_orig_longitude = gps_longitude;
 	gps_orig_heading = vtg_head;
 
-	if (use_imu && yaw < 400) {
+	if (imu_current_yaw < 400) {
 		//if we have a valid IMU reading, calculate the IMU
 		//heading offset and do roll compensation.
 		
-		//gps_roll should already be read
-
 		if(imu_heading_offset > 360 && gps_speed <= MIN_VTG_SPEED) {
+			//If no imu offset is known, and we're going too slow,
 			//calculate heading based on fix to fix
 			//use that to figure out IMU heading offset
 			if (last_lat < 400) {
 				if (haversine::distance(last_lat, last_lon,
 				                        gps_latitude,
 						        gps_longitude) > MIN_FIX_DIST) {
-					gps_heading = haversine::bearing(
+					gps_heading = haversine::bearing_degrees(
 					                         last_lat, last_lon,
 							         gps_latitude, gps_longitude);
-					imu_heading_offset = gps_heading - yaw;
-					if (imu_heading_offset < 0) imu_heading_offset += 360;
-					imu_heading_offset_set = true;
+					imu_heading_offset = gps_heading - imu_current_yaw;
+					if (new_offset > 180) new_offset -= 360;
+					if (new_offset < -180) new_offset += 360;
+					//if (imu_heading_offset < 0) imu_heading_offset += 360;
+					/*
+					Serial.print("heading offset set from fix to fix: ");
+					Serial.print(gps_heading);
+					Serial.print("-");
+					Serial.print(imu_current_yaw);
+					Serial.print("=");
+					Serial.println(imu_heading_offset);
+					*/
 				}
 
 			} else {
@@ -108,13 +99,25 @@ static inline void process_imu(void) {
 			}
 		} else if (gps_speed > MIN_VTG_SPEED) {
 			//if we're moving, calculate an IMU to real heading offset
-			new_offset = vtg_head - yaw;
-			if (new_offset < 0) new_offset += 360;
+
+			//if vtg heading has changed dramatically, but if the raw imu yaw has
+			//not changed significantly, we must be reversing.
+
+			new_offset = vtg_head - imu_current_yaw;
+			if (new_offset > 180) new_offset -= 360;
+			if (new_offset < -180) new_offset += 360;
 
 			if (imu_heading_offset > 360) {
 				//if heading offset is not already set, we need to set it here.
-				imu_heading_offset_set = true;
+				//hopefully we're going forward at this time.  If not, what to do
+				//TODO: figure out better reverse logic
 				imu_heading_offset  = new_offset;
+				Serial.print("heading offset set from vtg: ");
+				Serial.print(gps_heading);
+				Serial.print("-");
+				Serial.print(imu_current_yaw);
+				Serial.print("=");
+				Serial.println(imu_heading_offset);
 			} else {
 				//heading offset is set, let's refine it.
 				if (fabs(new_offset - imu_heading_offset) > 150) {
@@ -129,26 +132,29 @@ static inline void process_imu(void) {
 			imu_heading_offset = 0.7*imu_heading_offset + 0.3*new_offset;
 		}		
 
-		if(imu_heading_offset_set) {
+		if(imu_heading_offset < 400) {
 			//Use the IMU heading instead of the pure VTG heading
-			gps_heading = fmod(yaw + imu_heading_offset,360);
+			gps_heading = fmod(imu_current_yaw + imu_heading_offset,360);
 			if (gps_heading < 0) gps_heading += 360;
 		} else {
 			//no offset yet calculated, so throw in the VTG heading
 			gps_heading = vtg_head;
 		}
 
-		roll_rad = gps_roll * M_PI / 180.0;
 	} else {
-		//we either don't have an IMU or we haven't read it yet
-		//so don't do roll compensation, but do adjust the GPS
-		//as best we can to the center of the tractor from its
-		//potentially offset position.
-		
-		roll_rad = 0;
+		//no valid IMU heading numbers yet.
 		gps_heading = vtg_head;
-		gps_roll = 0;
+
+		if (gps_roll > 360) {
+			//if no valid IMU roll numbers, do without terrain
+			//compensation, although any antenna offset adjustments
+			//will be wildly incorrect.
+			roll_rad = 0;
+			gps_roll = 0;
+		}
 	}
+
+	roll_rad = gps_roll * M_PI / 180.0;
 
 	//do roll compensation and adjust lat and lon for the 
 	//offsets of the GPS unit
@@ -200,7 +206,7 @@ static void GGA_handler() {
 		got_vtg = false;
 		nmea_timer = 0; //??
 	}
-	gps_roll = imu->get_roll(imu_lookback); //already offset
+	gps_roll = imu_current_roll;
 
 	got_gga = true;
 
@@ -338,6 +344,14 @@ static void RMC_handler() {
 
 static void error_handler() {
 
+}
+
+unsigned long last_time = 0;
+
+static void GGA_pre_handler() {
+	unsigned long t = millis();
+	Serial.println(t - last_time);
+	last_time = t;
 }
 
 namespace nmea_imu {

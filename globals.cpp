@@ -22,8 +22,11 @@ bool imu_reverse = false;
 bool imu_heading_offset_set = false;
 float imu_heading_offset = 400;
 int imu_lookback = IMU_DEFAULT_LOOKBACK;
-float imu_last_roll = 0;
-float imu_last_yaw = 400;
+int imu_window = IMU_DEFAULT_WINDOW;
+float imu_current_roll = 400;
+float imu_current_yaw = 400;
+float imu_current_pitch = 400;
+float imu_roll_buffer[20];
 
 /*****************************
  * GPS configuration and state 

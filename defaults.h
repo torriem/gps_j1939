@@ -44,7 +44,7 @@
 #define ANTENNA_DEFAULT_RIGHT 26.5 * INCHES
 
 //GPS
-#define GPS_DEFAULT_SOURCE GPS_PX1172RH
+#define GPS_DEFAULT_SOURCE GPS_PX1172RH //GPS_NMEA_BNO // GPS_PX1172RH
 #define GPS_TIMEOUT 1000 //how long to wait until sending "No GPS messages."
 #define GPS_DEFAULT_VIRTUAL_SOURCE VIRTUAL_NONE
 
@@ -52,10 +52,16 @@
 #define IMU_DEFAULT_SOURCE IMU_BNO
 #define IMU_DEFAULT_ROLL_OFFSET -3.625
 #define IMU_DEFAULT_LOOKBACK 90
+#define IMU_DEFAULT_WINDOW 3
+
+//minimum speed to use VTG to calculate IMU heading offset
+#define MIN_VTG_SPEED 0.5 //kph
+//minimum fix to fix distance to calculate a heading
+#define MIN_FIX_DIST 3 //metre
 
 //Serial ports
 #if defined(TEENSY)
-#define SERIAL_DEFAULT_IMU Serial //for testing, otherwise use Serial4
+#define SERIAL_DEFAULT_IMU Serial //for testing been using USB Serial input, normally use Serial4
 #define SERIAL_DEFAULT_GPS Serial3
 #define SERIAL_DEFAULT_OUT Serial5
 

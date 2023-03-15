@@ -46,7 +46,7 @@ namespace haversine {
 	}
 	double bearing_degrees (double lat1, double lon1, double lat2, double lon2 )
 	{
-		return bearing(lon1, lat1, lon2, lat2) *  toDegrees;
+		return bearing(lat1, lon1, lat2, lon2) *  toDegrees;
 	}
 
 	void move_distance_bearing( double &lat, double &lon,

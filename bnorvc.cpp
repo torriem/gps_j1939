@@ -44,21 +44,87 @@ void BNORVC::process_data(void) {
 	}
 }
 
-float BNORVC::get_roll(int lookback_ms) {
-	int old_rvc = (BNO_MAX_LOOKBACK - lookback_ms / 10 + current_rvc) % BNO_MAX_LOOKBACK;
+float BNORVC::get_roll_from_index(int lookback_index){
+	/* use a time slot index instead of ms.  Lookback_index is
+	 * lookback_ms / 10
+	 */
+
+	float roll;
+
+	int buffer_index = (BNO_MAX_LOOKBACK + lookback_index) % BNO_MAX_LOOKBACK;
 
 	float scale = (imu_reverse ? -1 : 1);
 
-	if (rvc_data[old_rvc].yaw < 400) {
+	if (rvc_data[buffer_index].yaw < 400) {
 		if(imu_use_pitch) {
-			imu_last_roll = (rvc_data[old_rvc].pitch + imu_roll_offset) * scale;
+			roll = (rvc_data[buffer_index].pitch + imu_roll_offset) * scale;
 		} else {
-			imu_last_roll = (rvc_data[old_rvc].roll + imu_roll_offset) * scale;
+			roll = (rvc_data[buffer_index].roll + imu_roll_offset) * scale;
 		}
-		return imu_last_roll;
+		return roll;
 	} else {
 		return 400;
 	}
+
+
+}
+
+float BNORVC::get_roll_ave(int lookback_ms, int qave = 3) {
+	/* calculate the average roll value across the qave window.
+	 * qave is discrete readings.  Should always be odd, and the
+	 * lookback_ms value should be in the buffer such that the
+	 * entire required window of values are available.  If not,
+	 * the average won't cover the desired time.
+	 */
+
+	float roll_sum;
+	float roll_reading;
+
+	int offset = (lookback_ms / 10);
+	int start, end;
+
+	float scale = (imu_reverse ? -1 : 1);
+	//temporary for debugging
+	for (int i=0; i < 20 ; i++) {
+		imu_roll_buffer[i] = (rvc_data[(current_rvc + i) % BNO_MAX_LOOKBACK].roll + imu_roll_offset) * scale;
+	}
+
+	//make sure the window is inside the buffer. Note that
+	//end is the youngest time and start is the oldest
+	end = offset + qave / 2;
+	start = offset - qave / 2;
+	if (end > BNO_MAX_LOOKBACK) {
+		end = BNO_MAX_LOOKBACK;
+	}
+
+	if (start < 0) {
+		start = 0;
+	}
+	
+	int i;
+	int count=0;
+	roll_sum = 0;
+
+	for (i=start; i < end; i++) {
+		roll_reading = get_roll_from_index(i);
+		if (roll_reading < 400) {
+			count++;
+			roll_sum += roll_reading;
+		}
+	}
+	if(count) {
+		//return the average of the valid readings in the window
+		return roll_sum / count;
+	}
+	
+	//no valid readings in the window, so return invalid.
+	return 400;
+			
+}
+
+float BNORVC::get_roll(int lookback_ms) {
+
+	return get_roll_ave(lookback_ms, 3);
 }
 
 float BNORVC::get_pitch(int lookback_ms) {
@@ -78,6 +144,7 @@ float BNORVC::get_pitch(int lookback_ms) {
 }
 
 float BNORVC::get_yaw(int lookback_ms) {
+
 	int old_rvc = (BNO_MAX_LOOKBACK - lookback_ms / 10 + current_rvc) % BNO_MAX_LOOKBACK;
 
 	float scale = (imu_reverse ? -1 : 1);

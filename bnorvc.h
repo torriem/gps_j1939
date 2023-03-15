@@ -19,12 +19,15 @@ protected:
 	elapsedMillis imu_timer;
 	Stream *uart;
 
+	float get_roll_from_index(int lookback_index);
+
 public:
 	BNORVC();
 
 	void set_uart(Stream *the_uart);
 	void process_data(void);
-	float get_roll (int lookback_ms);
+	float get_roll_ave (int lookback_ms, int qave);
+	float get_roll(int lookback_ms);
 	float get_pitch (int lookback_ms);
 	float get_yaw (int lookback_ms);
 	int get_oldest_time(void);
