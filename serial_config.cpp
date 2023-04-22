@@ -134,9 +134,10 @@ namespace serial_config {
 	 
 #if defined(ESP32)	
 		snprintf(sc_nmea_buffer, SC_BUFFER_LEN,
-		         "$PTSER,%d,%s,%s,%d,%d,%d,%d",
+		         "$PTSER,%d,%s,%s,%d,%d,%d,%d,%d",
 			 0, F("Bluetooth"),
 			 bt_name,
+			 (bluetooth_nmea.get_corrected() ? 1 : 0),
 			 bluetooth_nmea.get_gga_interval(),
 			 bluetooth_nmea.get_vtg_interval(),
 			 serialout_nmea.get_rmc_interval(),
@@ -151,8 +152,9 @@ namespace serial_config {
 
 		snprintf(msg, SC_BUFFER_LEN - msg_len,
 		         "$PTSER,%d,%s,%d,%d,%d,%d,%d",
-			 1, F("Serial1"),
+			 1, F("SerialOut"),
 			 serialout_baud,
+			 (serialout_nmea.get_corrected() ? 1 : 0),
 			 serialout_nmea.get_gga_interval(),
 			 serialout_nmea.get_vtg_interval(),
 			 serialout_nmea.get_rmc_interval(),
@@ -164,9 +166,10 @@ namespace serial_config {
 
 #elif defined (TEENSY)
 		snprintf(sc_nmea_buffer, SC_BUFFER_LEN,
-		         "$PTSER,%d,%s,%d,%d,%d,%d,%d",
+		         "$PTSER,%d,%s,%d,%d,%d,%d,%d,%d",
 			 0, "SerialUSB",
 			 115200,
+			 (serialusb_nmea.get_corrected() ? 1 : 0),
 			 serialusb_nmea.get_gga_interval(),
 			 serialusb_nmea.get_vtg_interval(),
 			 serialout_nmea.get_rmc_interval(),
@@ -182,9 +185,10 @@ namespace serial_config {
 		msg = sc_nmea_buffer + msg_len;
 
 		snprintf(msg, SC_BUFFER_LEN - msg_len,
-		         "$PTSER,%d,%s,%d,%d,%d,%d,%d",
+		         "$PTSER,%d,%s,%d,%d,%d,%d,%d,%d",
 			 1, F("SerialOut"),
 			 serialout_baud,
+			 (serialout_nmea.get_corrected() ? 1 : 0),
 	 		 serialout_nmea.get_gga_interval(),
 			 serialout_nmea.get_vtg_interval(),
 			 serialout_nmea.get_rmc_interval(),
