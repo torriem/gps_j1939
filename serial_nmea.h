@@ -37,6 +37,7 @@ public:
 	void set_rmc_interval (int interval) {rmc_interval = interval;}
 	void set_cfg_interval (int interval) {cfg_interval = interval;}
 
+	bool get_corrected(void) { return imu_corrected; }
 	int get_gga_interval(void) { return gga_interval; }
 	int get_vtg_interval(void) { return vtg_interval; }
 	int get_rmc_interval(void) { return rmc_interval; }
